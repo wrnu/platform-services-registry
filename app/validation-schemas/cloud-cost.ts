@@ -106,9 +106,16 @@ export type CspConsumptionAlert = z.infer<typeof cspConsumptionAlertSchema>;
 export type CspConsumptionHistory = z.infer<typeof cspConsumptionHistorySchema>;
 export type CloudCostForecastBody = z.infer<typeof cloudCostForecastBodySchema>;
 
+export const rejectForecastBodySchema = z.object({
+  rejectionReason: z.string().min(1),
+});
+
+export type RejectForecastBody = z.infer<typeof rejectForecastBodySchema>;
+
 export const publicCloudAccountabilitySearchBodySchema = z.object({
   search: z.string().optional(),
   status: z.nativeEnum(AccountabilityStatus).optional(),
+  statuses: z.array(z.nativeEnum(AccountabilityStatus)).optional(),
   provider: z.nativeEnum(Provider).optional(),
   highestOpenAlert: z.nativeEnum(AccountabilityAlertLevel).optional(),
   onEscalationList: z.boolean().optional(),

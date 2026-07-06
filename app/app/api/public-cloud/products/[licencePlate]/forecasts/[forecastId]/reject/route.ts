@@ -2,10 +2,11 @@ import { z } from 'zod';
 import { GlobalRole } from '@/constants';
 import createApiHandler from '@/core/api-handler';
 import { BadRequestResponse, OkResponse, UnauthorizedResponse } from '@/core/responses';
-import { sendForecastSubmittedEmail } from '@/services/ches/public-cloud/accountability-emails';
+import { sendForecastRejectedEmail } from '@/services/ches/public-cloud/accountability-emails';
 import { models } from '@/services/db';
-import { submitForecast } from '@/services/db/public-cloud-accountability';
+import { rejectForecast } from '@/services/db/public-cloud-accountability';
 import { objectId } from '@/validation-schemas';
+import { rejectForecastBodySchema } from '@/validation-schemas/cloud-cost';
 
 const pathParamSchema = z.object({
   licencePlate: z.string(),
@@ -14,17 +15,17 @@ const pathParamSchema = z.object({
 
 export const POST = createApiHandler({
   roles: [GlobalRole.User],
-  validations: { pathParams: pathParamSchema },
-})(async ({ pathParams, session }) => {
+  validations: { pathParams: pathParamSchema, body: rejectForecastBodySchema },
+})(async ({ pathParams, session, body }) => {
   const { licencePlate, forecastId } = pathParams;
   const { data: product } = await models.publicCloudProduct.get({ where: { licencePlate } }, session);
-  if (!product?._permissions.editForecast) {
+  if (!product?._permissions.approveForecast) {
     return UnauthorizedResponse();
   }
 
   try {
-    const forecast = await submitForecast(forecastId, session.user.id);
-    await sendForecastSubmittedEmail(licencePlate, forecast);
+    const forecast = await rejectForecast(forecastId, session.user.id, body.rejectionReason);
+    await sendForecastRejectedEmail(licencePlate, forecast);
     return OkResponse(forecast);
   } catch (e) {
     return BadRequestResponse((e as Error).message);

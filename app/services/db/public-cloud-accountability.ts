@@ -1,7 +1,9 @@
 import {
   buildFiscalForecastMonths,
+  FISCAL_FORECAST_HORIZON_MONTHS,
   FISCAL_FORECAST_YEARS,
   preserveLockedPastMonthlyValues,
+  isForecastHorizonComplete,
 } from '@/components/public-cloud/accountability/forecast-grid-utils';
 import prisma from '@/core/prisma';
 import { parsePaginationParams } from '@/helpers/pagination';
@@ -232,6 +234,13 @@ export async function recomputeAccountabilityState(licencePlate: string) {
 
   if (!activeForecast) {
     status = AccountabilityStatus.FORECAST_REQUIRED;
+  } else if (
+    !isForecastHorizonComplete(
+      activeForecast.monthlyValues as { year: number; month: number; amount: number; currency: string }[],
+      activeForecast.horizonMonths,
+    )
+  ) {
+    status = AccountabilityStatus.FORECAST_REVIEW_REQUIRED;
   } else if (
     openAlerts.some((a) => a.level === AccountabilityAlertLevel.A3 || a.level === AccountabilityAlertLevel.A2)
   ) {
@@ -518,6 +527,26 @@ export async function approveForecast(forecastId: string, userId: string) {
   return approved;
 }
 
+export async function rejectForecast(forecastId: string, userId: string, rejectionReason: string) {
+  const forecast = await prisma.cloudCostForecast.findUnique({ where: { id: forecastId } });
+  if (!forecast || forecast.status !== CloudCostForecastStatus.PENDING_APPROVAL) {
+    throw new Error('Only pending forecasts can be rejected');
+  }
+
+  const rejected = await prisma.cloudCostForecast.update({
+    where: { id: forecastId },
+    data: {
+      status: CloudCostForecastStatus.REJECTED,
+      rejectedAt: new Date(),
+      rejectedById: userId,
+      rejectionReason,
+    },
+  });
+
+  await recomputeAccountabilityState(forecast.licencePlate);
+  return rejected;
+}
+
 export async function acknowledgeAlert(alertId: string, userId: string, explanation?: string) {
   return prisma.accountabilityAlert.update({
     where: { id: alertId },
@@ -619,6 +648,7 @@ export async function searchPublicCloudAccountability({
   page,
   pageSize,
   status,
+  statuses,
   provider,
   highestOpenAlert,
   onEscalationList,
@@ -631,6 +661,7 @@ export async function searchPublicCloudAccountability({
   page?: number;
   pageSize?: number;
   status?: AccountabilityStatus;
+  statuses?: AccountabilityStatus[];
   provider?: Provider;
   highestOpenAlert?: AccountabilityAlertLevel;
   onEscalationList?: boolean;
@@ -719,6 +750,9 @@ export async function searchPublicCloudAccountability({
 
   if (status) {
     rows = rows.filter((r) => r.status === status);
+  }
+  if (statuses?.length) {
+    rows = rows.filter((r) => statuses.includes(r.status));
   }
   if (highestOpenAlert) {
     rows = rows.filter((r) => r.highestOpenAlert === highestOpenAlert);

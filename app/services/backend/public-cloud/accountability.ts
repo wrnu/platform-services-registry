@@ -28,6 +28,10 @@ export async function approvePublicCloudForecast(licencePlate: string, forecastI
   return instance.post(`/${licencePlate}/forecasts/${forecastId}/approve`).then((res) => res.data);
 }
 
+export async function rejectPublicCloudForecast(licencePlate: string, forecastId: string, rejectionReason: string) {
+  return instance.post(`/${licencePlate}/forecasts/${forecastId}/reject`, { rejectionReason }).then((res) => res.data);
+}
+
 export async function acknowledgePublicCloudAlert(licencePlate: string, alertId: string, explanation?: string) {
   return instance.post(`/${licencePlate}/alerts/${alertId}/acknowledge`, { explanation }).then((res) => res.data);
 }

@@ -7,6 +7,7 @@ import { POST as _acknowledgeAlert } from '@/app/api/public-cloud/products/[lice
 import { POST as _resolveAlert } from '@/app/api/public-cloud/products/[licencePlate]/alerts/[alertId]/resolve/route';
 import { GET as _getCosts } from '@/app/api/public-cloud/products/[licencePlate]/costs/route';
 import { POST as _approveForecast } from '@/app/api/public-cloud/products/[licencePlate]/forecasts/[forecastId]/approve/route';
+import { POST as _rejectForecast } from '@/app/api/public-cloud/products/[licencePlate]/forecasts/[forecastId]/reject/route';
 import { PUT as _updateForecast } from '@/app/api/public-cloud/products/[licencePlate]/forecasts/[forecastId]/route';
 import { POST as _submitForecast } from '@/app/api/public-cloud/products/[licencePlate]/forecasts/[forecastId]/submit/route';
 import {
@@ -114,6 +115,16 @@ export async function approvePublicCloudForecast(licencePlate: string, forecastI
       pathParams: { licencePlate, forecastId },
     },
   );
+}
+
+export async function rejectPublicCloudForecast(
+  licencePlate: string,
+  forecastId: string,
+  data: { rejectionReason: string },
+) {
+  return productRoute.post(_rejectForecast, '/{{licencePlate}}/forecasts/{{forecastId}}/reject', data, {
+    pathParams: { licencePlate, forecastId },
+  });
 }
 
 export async function getPublicCloudQuarterlyReview(licencePlate: string) {

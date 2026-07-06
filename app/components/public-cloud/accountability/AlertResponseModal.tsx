@@ -4,6 +4,8 @@ import { Button, Modal, Textarea } from '@mantine/core';
 import { useState } from 'react';
 import { acknowledgePublicCloudAlert, resolvePublicCloudAlert } from '@/services/backend/public-cloud/accountability';
 
+const VARIANCE_ALERT_LEVELS = new Set(['A1', 'A2', 'A3']);
+
 export default function AlertResponseModal({
   licencePlate,
   alertId,
@@ -25,17 +27,21 @@ export default function AlertResponseModal({
   const [resolutionReason, setResolutionReason] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const explanationRequired = mode === 'acknowledge' && VARIANCE_ALERT_LEVELS.has(alertLevel);
+
   const handleSubmit = async () => {
+    if (explanationRequired && !explanation.trim()) return;
+
     setLoading(true);
     try {
       if (mode === 'acknowledge') {
-        await acknowledgePublicCloudAlert(licencePlate, alertId, explanation || undefined);
+        await acknowledgePublicCloudAlert(licencePlate, alertId, explanation.trim() || undefined);
       } else {
         await resolvePublicCloudAlert(
           licencePlate,
           alertId,
           resolutionReason || 'Resolved by project team',
-          explanation || undefined,
+          explanation.trim() || undefined,
         );
       }
       setExplanation('');
@@ -55,8 +61,13 @@ export default function AlertResponseModal({
     >
       <div className="space-y-4">
         <Textarea
-          label="Explanation (optional)"
-          description="Describe variance or planned forecast update"
+          label={explanationRequired ? 'Overage explanation' : 'Explanation (optional)'}
+          description={
+            explanationRequired
+              ? 'Required for variance alerts — describe the overage and planned forecast update'
+              : 'Describe variance or planned forecast update'
+          }
+          required={explanationRequired}
           value={explanation}
           onChange={(e) => setExplanation(e.currentTarget.value)}
           minRows={3}
@@ -73,7 +84,7 @@ export default function AlertResponseModal({
           <Button variant="default" onClick={onClose}>
             Cancel
           </Button>
-          <Button loading={loading} onClick={handleSubmit}>
+          <Button loading={loading} disabled={explanationRequired && !explanation.trim()} onClick={handleSubmit}>
             {mode === 'acknowledge' ? 'Acknowledge' : 'Resolve'}
           </Button>
         </div>

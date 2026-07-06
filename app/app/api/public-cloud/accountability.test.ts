@@ -20,6 +20,7 @@ import {
   postCspAlert,
   putCspConsumption,
   putCspConsumptionHistory,
+  rejectPublicCloudForecast,
   resolvePublicCloudAlert,
   signOffPublicCloudQuarterlyReview,
   submitPublicCloudForecast,
@@ -162,6 +163,28 @@ describe('Public Cloud accountability APIs', () => {
       expect(listRes.status).toBe(200);
       const list = await listRes.json();
       expect(list.activeForecast?.id).toBe(draft.id);
+    });
+
+    it('rejects a pending forecast with reason', async () => {
+      const createRes = await createPublicCloudForecast(licencePlate, {
+        monthlyValues: buildForecastMonthlyValues(4500, currency, FISCAL_FORECAST_HORIZON_MONTHS),
+        horizonMonths: FISCAL_FORECAST_HORIZON_MONTHS,
+      });
+      expect(createRes.status).toBe(200);
+      const draft = await createRes.json();
+
+      const submitRes = await submitPublicCloudForecast(licencePlate, draft.id);
+      expect(submitRes.status).toBe(200);
+
+      await mockSessionByRole(GlobalRole.BillingReviewer);
+      const rejectRes = await rejectPublicCloudForecast(licencePlate, draft.id, {
+        rejectionReason: 'Forecast totals need ministry alignment',
+      });
+      expect(rejectRes.status).toBe(200);
+
+      const rejected = await rejectRes.json();
+      expect(rejected.status).toBe(CloudCostForecastStatus.REJECTED);
+      expect(rejected.rejectionReason).toBe('Forecast totals need ministry alignment');
     });
 
     it('updates quarterly review and records PO sign-off', async () => {

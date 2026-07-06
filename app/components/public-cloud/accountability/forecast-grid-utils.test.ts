@@ -13,6 +13,7 @@ import {
   getCellStatuses,
   getForecastIncreases,
   getProviderSpendLabel,
+  isForecastHorizonComplete,
   mergeMonthlyValuesOntoFiscalHorizon,
   preserveLockedPastMonthlyValues,
   type ForecastCellStatus,
@@ -171,6 +172,19 @@ describe('getForecastIncreases', () => {
     const increases = getForecastIncreases(proposed, baseline, june2026);
 
     expect(increases).toEqual([{ year: 2026, month: 7, previousAmount: 1000, newAmount: 1500 }]);
+  });
+});
+
+describe('isForecastHorizonComplete', () => {
+  const june2026 = new Date(2026, 5, 15);
+
+  it('requires non-zero amounts for current and future months', () => {
+    const values = buildFiscalForecastMonths(2, 1000, 'CAD', june2026);
+    expect(isForecastHorizonComplete(values)).toBe(true);
+
+    const julyIndex = values.findIndex((v) => v.month === 7 && v.year === 2026);
+    values[julyIndex].amount = 0;
+    expect(isForecastHorizonComplete(values)).toBe(false);
   });
 });
 

@@ -2,6 +2,7 @@ import prisma from '@/core/prisma';
 import { QuarterlyReviewStatus, ProjectStatus } from '@/prisma/client';
 import {
   sendMonthlyAccountabilityRecapEmail,
+  sendNonComplianceSummaryEmail,
   sendQuarterlyEscalationEmail,
   sendQuarterlyForecastReminderEmail,
   sendWeeklySignOffReminderEmail,
@@ -44,6 +45,8 @@ export async function runQuarterlyReminderJob() {
     await sendQuarterlyForecastReminderEmail(product.licencePlate, quarter, fiscalYear);
     sent += 1;
   }
+
+  await sendNonComplianceSummaryEmail();
 
   return { sent };
 }

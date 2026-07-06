@@ -11,11 +11,14 @@ import CostAlertA2Template from '@/emails/_templates/public-cloud/CostAlertA2';
 import CostAlertA2AdminTemplate from '@/emails/_templates/public-cloud/CostAlertA2Admin';
 import CostAlertA3Template from '@/emails/_templates/public-cloud/CostAlertA3';
 import CostAlertA3AdminTemplate from '@/emails/_templates/public-cloud/CostAlertA3Admin';
+import ForecastRejectedTemplate from '@/emails/_templates/public-cloud/ForecastRejected';
+import ForecastSubmittedTemplate from '@/emails/_templates/public-cloud/ForecastSubmitted';
 import MonthlyAccountabilityRecapTemplate from '@/emails/_templates/public-cloud/MonthlyAccountabilityRecap';
+import NonComplianceSummaryTemplate from '@/emails/_templates/public-cloud/NonComplianceSummary';
 import QuarterlyEscalationTemplate from '@/emails/_templates/public-cloud/QuarterlyEscalation';
 import QuarterlyForecastReminderTemplate from '@/emails/_templates/public-cloud/QuarterlyForecastReminder';
 import QuarterlySignOffReminderTemplate from '@/emails/_templates/public-cloud/QuarterlySignOffReminder';
-import { AccountabilityAlertLevel, ProjectStatus } from '@/prisma/client';
+import { AccountabilityAlertLevel, AccountabilityStatus, ProjectStatus } from '@/prisma/client';
 import { safeSendEmail, sendEmail } from '@/services/ches/core';
 import { getContent } from '@/services/ches/helpers';
 import { findUserEmailsByAuthRole } from '@/services/keycloak/app-realm';
@@ -101,6 +104,102 @@ export async function sendQuarterlyForecastReminderEmail(licencePlate: string, q
   return safeSendEmail({
     subject: `Quarterly forecast update — ${name} (${licencePlate})`,
     to: emails,
+    body: content,
+  });
+}
+
+export async function sendForecastSubmittedEmail(
+  licencePlate: string,
+  forecast: { version: number; horizonMonths: number },
+) {
+  const product = await prisma.publicCloudProduct.findFirst({
+    where: { licencePlate },
+    select: { name: true },
+  });
+  if (!product) return;
+
+  const recipients = _uniqEmails([
+    ...(await findUserEmailsByAuthRole(GlobalRole.BillingReviewer)),
+    ...(await findUserEmailsByAuthRole(GlobalRole.BillingManager)),
+  ]);
+  if (!recipients.length) return;
+
+  const content = await getContent(
+    ForecastSubmittedTemplate({
+      productName: product.name,
+      licencePlate,
+      version: forecast.version,
+      horizonMonths: forecast.horizonMonths,
+    }),
+  );
+
+  return safeSendEmail({
+    subject: `Forecast submitted — ${product.name} (${licencePlate}) v${forecast.version}`,
+    to: recipients,
+    cc: [IS_PROD ? publicCloudTeamEmail : ''],
+    body: content,
+  });
+}
+
+export async function sendForecastRejectedEmail(
+  licencePlate: string,
+  forecast: { version: number; rejectionReason: string | null },
+) {
+  const { emails, name } = await getProductTeamEmails(licencePlate);
+  if (!emails.length || !forecast.rejectionReason) return;
+
+  const content = await getContent(
+    ForecastRejectedTemplate({
+      productName: name,
+      licencePlate,
+      version: forecast.version,
+      rejectionReason: forecast.rejectionReason,
+    }),
+  );
+
+  return safeSendEmail({
+    subject: `Forecast rejected — ${name} (${licencePlate}) v${forecast.version}`,
+    to: emails,
+    body: content,
+  });
+}
+
+export async function sendNonComplianceSummaryEmail() {
+  const products = await prisma.publicCloudProduct.findMany({
+    where: { status: ProjectStatus.ACTIVE },
+    select: { licencePlate: true, name: true },
+  });
+
+  const states = await prisma.cloudCostAccountabilityState.findMany({
+    where: { licencePlate: { in: products.map((p) => p.licencePlate) } },
+  });
+  const stateMap = new Map(states.map((s) => [s.licencePlate, s]));
+
+  const rows = products
+    .map((p) => {
+      const state = stateMap.get(p.licencePlate);
+      return {
+        licencePlate: p.licencePlate,
+        name: p.name,
+        status: state?.status ?? AccountabilityStatus.FORECAST_REQUIRED,
+        highestOpenAlert: state?.highestOpenAlert,
+      };
+    })
+    .filter((row) => row.status !== AccountabilityStatus.COMPLIANT);
+
+  const recipients = _uniqEmails([
+    ...(await findUserEmailsByAuthRole(GlobalRole.PublicAdmin)),
+    ...(await findUserEmailsByAuthRole(GlobalRole.Admin)),
+  ]);
+  if (!recipients.length) return;
+
+  const periodLabel = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long' });
+  const content = await getContent(NonComplianceSummaryTemplate({ rows, periodLabel }));
+
+  return sendEmail({
+    subject: `Public Cloud non-compliance summary — ${periodLabel}`,
+    to: recipients,
+    cc: [IS_PROD ? publicCloudTeamEmail : ''],
     body: content,
   });
 }

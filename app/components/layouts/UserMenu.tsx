@@ -131,6 +131,18 @@ export default function UserMenu() {
       permission: 'viewPublicCloudAccountability',
     },
     {
+      text: 'Accountability — Director',
+      Icon: IconSignLeft,
+      href: '/public-cloud/accountability/director',
+      permission: 'viewPublicCloudAccountability',
+    },
+    {
+      text: 'Accountability — Executive',
+      Icon: IconSignLeft,
+      href: '/public-cloud/accountability/executive',
+      permission: 'viewPublicCloudAccountability',
+    },
+    {
       text: 'Public Cloud Cost Rules',
       Icon: IconClockDollar,
       href: '/admin/public-cloud/cost-rules',

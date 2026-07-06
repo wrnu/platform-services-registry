@@ -1,10 +1,11 @@
 'use client';
 
-import { Alert, Badge, Button, Table } from '@mantine/core';
+import { Alert, Badge, Button, Modal, Table, Textarea } from '@mantine/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import Budget from '@/components/form/Budget';
 import LoadingBox from '@/components/generic/LoadingBox';
+import AccountabilityGuidancePanel from '@/components/public-cloud/accountability/AccountabilityGuidancePanel';
 import AccountabilityQuarterlyChecklist from '@/components/public-cloud/accountability/AccountabilityQuarterlyChecklist';
 import AlertResponseModal from '@/components/public-cloud/accountability/AlertResponseModal';
 import { FISCAL_FORECAST_HORIZON_MONTHS } from '@/components/public-cloud/accountability/forecast-grid-utils';
@@ -14,6 +15,7 @@ import {
   approvePublicCloudForecast,
   createPublicCloudForecast,
   getPublicCloudAccountability,
+  rejectPublicCloudForecast,
   signOffPublicCloudQuarterlyReview,
   submitPublicCloudForecast,
 } from '@/services/backend/public-cloud/accountability';
@@ -65,6 +67,16 @@ export default function PublicCloudProjectBudgetSection({
     onSuccess: refresh,
   });
 
+  const rejectForecast = useMutation({
+    mutationFn: ({ forecastId, rejectionReason }: { forecastId: string; rejectionReason: string }) =>
+      rejectPublicCloudForecast(licencePlate, forecastId, rejectionReason),
+    onSuccess: () => {
+      setRejectModalOpen(false);
+      setRejectionReason('');
+      refresh();
+    },
+  });
+
   const signOffQuarterly = useMutation({
     mutationFn: () => signOffPublicCloudQuarterlyReview(licencePlate),
     onSuccess: refresh,
@@ -75,6 +87,9 @@ export default function PublicCloudProjectBudgetSection({
     level: string;
     mode: 'acknowledge' | 'resolve';
   } | null>(null);
+  const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [pendingRejectForecastId, setPendingRejectForecastId] = useState<string | null>(null);
 
   const permissions = product?._permissions;
 
@@ -82,36 +97,66 @@ export default function PublicCloudProjectBudgetSection({
     ? (() => {
         const draftForecast = data.forecasts?.find((f: { status: string }) => f.status === 'DRAFT');
         const pendingForecast = data.forecasts?.find((f: { status: string }) => f.status === 'PENDING_APPROVAL');
+        const latestRejected = [...(data.forecasts ?? [])]
+          .filter((f: { status: string }) => f.status === 'REJECTED')
+          .sort((a: { version: number }, b: { version: number }) => b.version - a.version)[0];
 
         return (
-          <div className="flex flex-wrap gap-2">
-            {permissions?.editForecast && !draftForecast && !pendingForecast && (
-              <Button type="button" loading={createForecast.isPending} onClick={() => createForecast.mutate()}>
-                Create forecast from product budget
-              </Button>
+          <div className="space-y-3">
+            {latestRejected && !draftForecast && !pendingForecast && (
+              <Alert color="orange" title="Latest forecast was rejected">
+                {latestRejected.rejectionReason ?? 'No rejection reason provided.'}
+              </Alert>
             )}
-            {draftForecast && permissions?.editForecast && (
-              <Button
-                type="button"
-                loading={submitForecast.isPending}
-                onClick={() => submitForecast.mutate(draftForecast.id)}
-              >
-                Submit forecast for approval
-              </Button>
-            )}
-            {pendingForecast && permissions?.approveForecast && (
-              <Button
-                type="button"
-                loading={approveForecast.isPending}
-                onClick={() => approveForecast.mutate(pendingForecast.id)}
-              >
-                Approve forecast
-              </Button>
-            )}
+            <div className="flex flex-wrap gap-2">
+              {permissions?.editForecast && !draftForecast && !pendingForecast && (
+                <Button type="button" loading={createForecast.isPending} onClick={() => createForecast.mutate()}>
+                  Create forecast from product budget
+                </Button>
+              )}
+              {draftForecast && permissions?.editForecast && (
+                <Button
+                  type="button"
+                  loading={submitForecast.isPending}
+                  onClick={() => submitForecast.mutate(draftForecast.id)}
+                >
+                  Submit forecast for approval
+                </Button>
+              )}
+              {pendingForecast && permissions?.approveForecast && (
+                <>
+                  <Button
+                    type="button"
+                    loading={approveForecast.isPending}
+                    onClick={() => approveForecast.mutate(pendingForecast.id)}
+                  >
+                    Approve forecast
+                  </Button>
+                  <Button
+                    type="button"
+                    color="red"
+                    variant="light"
+                    onClick={() => {
+                      setPendingRejectForecastId(pendingForecast.id);
+                      setRejectModalOpen(true);
+                    }}
+                  >
+                    Reject forecast
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
         );
       })()
     : null;
+
+  const monthlyActuals =
+    data?.spendHistory?.months?.map((m: { year: number; month: number; actualTotal: number }) => ({
+      year: m.year,
+      month: m.month,
+      amount: m.actualTotal,
+    })) ?? [];
 
   return (
     <div className="space-y-8">
@@ -156,6 +201,8 @@ export default function PublicCloudProjectBudgetSection({
                 )}
               </section>
 
+              <AccountabilityGuidancePanel />
+
               <CurrentMonthSpendPanel snapshot={data.snapshot} />
 
               <section className="space-y-4">
@@ -187,6 +234,7 @@ export default function PublicCloudProjectBudgetSection({
                           updatedAt: displayForecast.updatedAt,
                         }}
                         monthlyValues={displayForecast.monthlyValues ?? []}
+                        monthlyActuals={monthlyActuals}
                         activeBaseline={draftForecast ? activeBaseline : null}
                         quarterlyReview={data.quarterlyReview}
                         editable={Boolean(draftForecast && permissions?.editForecast)}
@@ -339,6 +387,43 @@ export default function PublicCloudProjectBudgetSection({
                   onComplete={refresh}
                 />
               )}
+
+              <Modal
+                opened={rejectModalOpen}
+                onClose={() => setRejectModalOpen(false)}
+                title="Reject forecast"
+                centered
+              >
+                <div className="space-y-4">
+                  <Textarea
+                    label="Rejection reason"
+                    required
+                    minRows={3}
+                    value={rejectionReason}
+                    onChange={(e) => setRejectionReason(e.currentTarget.value)}
+                    placeholder="Explain what must change before this forecast can be approved..."
+                  />
+                  <div className="flex gap-2 justify-end">
+                    <Button variant="default" onClick={() => setRejectModalOpen(false)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      color="red"
+                      loading={rejectForecast.isPending}
+                      disabled={!rejectionReason.trim() || !pendingRejectForecastId}
+                      onClick={() => {
+                        if (!pendingRejectForecastId) return;
+                        rejectForecast.mutate({
+                          forecastId: pendingRejectForecastId,
+                          rejectionReason: rejectionReason.trim(),
+                        });
+                      }}
+                    >
+                      Reject forecast
+                    </Button>
+                  </div>
+                </div>
+              </Modal>
             </>
           )}
         </>

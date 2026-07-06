@@ -124,10 +124,17 @@ function CellEditor({
   );
 }
 
+type MonthlyActual = {
+  year: number;
+  month: number;
+  amount: number;
+};
+
 export default function ProjectBudgetForecastPanel({
   licencePlate,
   forecast,
   monthlyValues,
+  monthlyActuals = [],
   activeBaseline,
   quarterlyReview,
   editable,
@@ -137,6 +144,7 @@ export default function ProjectBudgetForecastPanel({
   licencePlate: string;
   forecast: ForecastMeta;
   monthlyValues: MonthlyValue[];
+  monthlyActuals?: MonthlyActual[];
   activeBaseline: MonthlyValue[] | null;
   quarterlyReview: QuarterlyReview | null;
   editable: boolean;
@@ -145,6 +153,11 @@ export default function ProjectBudgetForecastPanel({
 }) {
   const currency = monthlyValues[0]?.currency ?? 'CAD';
   const spendLabel = getProviderSpendLabel(provider);
+  const actualsByKey = useMemo(
+    () => new Map(monthlyActuals.map((v) => [monthKey(v.year, v.month), v.amount])),
+    [monthlyActuals],
+  );
+  const hasActuals = monthlyActuals.length > 0;
 
   const baselineValues = useMemo(
     () => mergeMonthlyValuesOntoFiscalHorizon(monthlyValues, FISCAL_FORECAST_YEARS, currency),
@@ -455,6 +468,37 @@ export default function ProjectBudgetForecastPanel({
                         <td className="px-3 py-2 text-center text-sm bg-gray-50 text-gray-400">In progress</td>
                       )}
                     </tr>
+                    {hasActuals && (
+                      <tr>
+                        <td className="px-3 py-2 text-gray-600 sticky left-0 bg-white border-r border-gray-100">
+                          Actual
+                        </td>
+                        {fyChunk.months.map((v) => {
+                          const actual = actualsByKey.get(monthKey(v.year, v.month));
+                          return (
+                            <td
+                              key={`actual-${monthKey(v.year, v.month)}`}
+                              className="px-2 py-2 text-center text-sm text-gray-700 bg-gray-100"
+                            >
+                              {actual != null ? formatForecastAmount(actual, currency) : '—'}
+                            </td>
+                          );
+                        })}
+                        {showYearTotal ? (
+                          <td className="px-3 py-2 text-center font-semibold bg-amber-50 text-gray-800">
+                            {formatForecastAmount(
+                              fyChunk.months.reduce(
+                                (sum, v) => sum + (actualsByKey.get(monthKey(v.year, v.month)) ?? 0),
+                                0,
+                              ),
+                              currency,
+                            )}
+                          </td>
+                        ) : (
+                          <td className="px-3 py-2 text-center text-sm bg-gray-50 text-gray-400">—</td>
+                        )}
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>

@@ -253,6 +253,20 @@ export function countCellsAwaitingForecast(statuses: ForecastCellStatus[]) {
   return statuses.filter((s) => s === 'needsReview' || s === 'suggested').length;
 }
 
+/** True when all current and future months in the rolling horizon have forecast amounts. */
+export function isForecastHorizonComplete(
+  values: MonthlyValue[],
+  horizonMonths = FISCAL_FORECAST_HORIZON_MONTHS,
+  now = new Date(),
+) {
+  if (values.length < horizonMonths) return false;
+
+  return values.slice(0, horizonMonths).every((value) => {
+    if (isPastMonth(value.year, value.month, now)) return true;
+    return value.amount > 0;
+  });
+}
+
 function isEditableForecastCell(status: ForecastCellStatus) {
   return status === 'suggested' || status === 'needsReview';
 }
