@@ -23,7 +23,10 @@ export const PUT = createApiHandler({
   }
 
   try {
-    const forecast = await updateForecastDraft(forecastId, body.monthlyValues, body.horizonMonths);
+    const forecast = await updateForecastDraft(forecastId, body.monthlyValues, body.horizonMonths, {
+      changeJustification: body.changeJustification,
+      changeNature: body.changeNature,
+    });
     return OkResponse(forecast);
   } catch (e) {
     return BadRequestResponse((e as Error).message);

@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { accountabilitySorts } from '@/constants/accountability';
 import { Prisma } from '@/prisma/client';
+import { downloadFile } from '@/utils/browser';
 import { instance as parentInstance } from './instance';
 
 export const instance = axios.create({
@@ -56,6 +57,8 @@ export async function updatePublicCloudForecast(
   data: {
     monthlyValues: { year: number; month: number; amount: number; currency: 'USD' | 'CAD' }[];
     horizonMonths: number;
+    changeJustification?: string;
+    changeNature?: 'ONE_TIME' | 'ONGOING';
   },
 ) {
   return instance.put(`/${licencePlate}/forecasts/${forecastId}`, data).then((res) => res.data);
@@ -79,4 +82,16 @@ export async function searchPublicCloudAccountability(data: Record<string, unkno
   }
 
   return adminInstance.post('/search', reqData).then((res) => res.data);
+}
+
+export async function downloadBundledAccountabilityExport(provider?: string) {
+  const result = await adminInstance.post('/export', { provider }, { responseType: 'blob' }).then((res) => {
+    if (res.status === 204) return false;
+
+    const suffix = provider ? provider.toLowerCase() : 'all';
+    downloadFile(res.data, `public-cloud-accountability-${suffix}.csv`);
+    return true;
+  });
+
+  return result;
 }

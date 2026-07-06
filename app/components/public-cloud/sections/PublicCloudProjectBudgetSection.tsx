@@ -178,6 +178,7 @@ export default function PublicCloudProjectBudgetSection({
                     <>
                       <ProjectBudgetForecastPanel
                         licencePlate={licencePlate}
+                        provider={product?.provider}
                         forecast={{
                           id: displayForecast.id,
                           version: displayForecast.version,

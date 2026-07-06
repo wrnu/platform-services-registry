@@ -17,7 +17,7 @@ export const DEFAULT_CLOUD_COST_RULES = {
   },
   consumptionMilestones: { tiers: [50, 80, 100], stepPercent: 25 },
   earlyPaceWarning: { percentOfForecast: 50, byDayOfMonth: 10 },
-  forecastPolicy: { horizonMonths: 36, quarterStartMonths: [1, 4, 7, 10] },
+  forecastPolicy: { horizonMonths: 24, quarterStartMonths: [1, 4, 7, 10] },
   quarterlyReview: { softQrRequired: true, spendLookbackMonths: 3, poSignOffRequired: true },
   reminderPolicy: { weeklyUntilSignOff: true, escalateAtMPlusOne: true },
   monthlyRecapDayOfMonth: 1,

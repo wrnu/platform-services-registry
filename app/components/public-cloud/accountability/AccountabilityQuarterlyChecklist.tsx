@@ -17,8 +17,8 @@ const checklistItems: {
   key: keyof Omit<QuarterlyReview, 'poSignedOff'>;
   label: string;
 }[] = [
-  { key: 'forecastMonthsAdded', label: 'Months 21–24 added' },
-  { key: 'forecastMonthsReviewed', label: '21 months reviewed' },
+  { key: 'forecastMonthsAdded', label: 'Months 13–24 added' },
+  { key: 'forecastMonthsReviewed', label: '24-month forecast reviewed' },
   { key: 'membersReviewed', label: 'Team members reviewed' },
   { key: 'spendLookbackReviewed', label: 'Past 3 months spend reviewed' },
   { key: 'softQrCompleted', label: 'Soft quarterly review complete' },

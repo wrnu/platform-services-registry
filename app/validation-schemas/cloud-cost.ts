@@ -79,7 +79,9 @@ export const forecastMonthlyValueSchema = z.object({
 
 export const cloudCostForecastBodySchema = z.object({
   monthlyValues: z.array(forecastMonthlyValueSchema).min(1),
-  horizonMonths: z.number().int().min(1).max(36).default(36),
+  horizonMonths: z.number().int().min(1).max(36).default(24),
+  changeJustification: z.string().min(1).optional(),
+  changeNature: z.enum(['ONE_TIME', 'ONGOING']).optional(),
 });
 
 export const resolveAlertBodySchema = z.object({
@@ -118,6 +120,12 @@ export const publicCloudAccountabilitySearchBodySchema = z.object({
 });
 
 export type PublicCloudAccountabilitySearchBody = z.infer<typeof publicCloudAccountabilitySearchBodySchema>;
+
+export const accountabilityExportBodySchema = z.object({
+  provider: z.nativeEnum(Provider).optional(),
+});
+
+export type AccountabilityExportBody = z.infer<typeof accountabilityExportBodySchema>;
 
 const varianceThresholdTierSchema = z.object({
   percentAbove: z.number().optional(),

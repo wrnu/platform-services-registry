@@ -324,15 +324,91 @@ export async function getAccountabilitySummary(licencePlate: string) {
 
 export async function getCurrentMonthSpend(licencePlate: string) {
   const { year, month } = getCurrentBillingPeriod();
-  const snapshot = await prisma.cloudSpendSnapshot.findFirst({
-    where: { licencePlate, periodYear: year, periodMonth: month },
-    orderBy: { asOfDate: 'desc' },
-  });
+  const [snapshot, spendHistory] = await Promise.all([
+    prisma.cloudSpendSnapshot.findFirst({
+      where: { licencePlate, periodYear: year, periodMonth: month },
+      orderBy: { asOfDate: 'desc' },
+    }),
+    prisma.cloudSpendHistory.findFirst({ where: { licencePlate } }),
+  ]);
 
   return {
     billingPeriod: { year, month },
     snapshot,
+    spendHistory,
   };
+}
+
+export type AccountabilityExportRow = {
+  'Licence plate': string;
+  'Product name': string;
+  Provider: string;
+  Month: string;
+  'Forecast amount': number | string;
+  'Actual amount': number | string;
+  'Variance amount': number | string;
+  'Variance %': number | string;
+  Currency: string;
+};
+
+function monthSortKey(year: number, month: number) {
+  return year * 100 + month;
+}
+
+export async function buildProjectAccountabilityExportRows(licencePlate: string): Promise<AccountabilityExportRow[]> {
+  const product = await prisma.publicCloudProduct.findFirst({ where: { licencePlate } });
+  if (!product) return [];
+
+  const [forecast, history] = await Promise.all([
+    getActiveApprovedForecast(licencePlate),
+    prisma.cloudSpendHistory.findFirst({ where: { licencePlate } }),
+  ]);
+
+  const forecastByKey = new Map((forecast?.monthlyValues ?? []).map((v) => [`${v.year}-${v.month}`, v] as const));
+  const historyByKey = new Map((history?.months ?? []).map((m) => [`${m.year}-${m.month}`, m] as const));
+  const allKeys = [...new Set([...forecastByKey.keys(), ...historyByKey.keys()])].sort(
+    (a, b) =>
+      monthSortKey(Number(a.split('-')[0]), Number(a.split('-')[1])) -
+      monthSortKey(Number(b.split('-')[0]), Number(b.split('-')[1])),
+  );
+
+  return allKeys.map((key) => {
+    const [yearStr, monthStr] = key.split('-');
+    const year = Number(yearStr);
+    const month = Number(monthStr);
+    const forecastValue = forecastByKey.get(key);
+    const historyValue = historyByKey.get(key);
+    const currency = historyValue?.currency ?? forecastValue?.currency ?? 'USD';
+
+    return {
+      'Licence plate': licencePlate,
+      'Product name': product.name,
+      Provider: product.provider,
+      Month: `${year}-${String(month).padStart(2, '0')}`,
+      'Forecast amount': forecastValue?.amount ?? '',
+      'Actual amount': historyValue?.actualTotal ?? '',
+      'Variance amount': historyValue?.varianceAmount ?? '',
+      'Variance %': historyValue?.variancePercent ?? '',
+      Currency: currency,
+    };
+  });
+}
+
+export async function buildBundledAccountabilityExportRows(provider?: Provider): Promise<AccountabilityExportRow[]> {
+  const products = await prisma.publicCloudProduct.findMany({
+    where: {
+      status: ProjectStatus.ACTIVE,
+      ...(provider ? { provider } : {}),
+    },
+    select: { licencePlate: true },
+    orderBy: { licencePlate: 'asc' },
+  });
+
+  const rows: AccountabilityExportRow[] = [];
+  for (const product of products) {
+    rows.push(...(await buildProjectAccountabilityExportRows(product.licencePlate)));
+  }
+  return rows;
 }
 
 export async function createForecastDraft(
@@ -367,6 +443,7 @@ export async function updateForecastDraft(
   forecastId: string,
   monthlyValues: { year: number; month: number; amount: number; currency: string }[],
   horizonMonths: number,
+  changeMeta?: { changeJustification?: string; changeNature?: string },
 ) {
   const forecast = await prisma.cloudCostForecast.findUnique({ where: { id: forecastId } });
   if (!forecast || forecast.status !== CloudCostForecastStatus.DRAFT) {
@@ -385,7 +462,16 @@ export async function updateForecastDraft(
 
   return prisma.cloudCostForecast.update({
     where: { id: forecastId },
-    data: { monthlyValues: sanitizedValues, horizonMonths },
+    data: {
+      monthlyValues: sanitizedValues,
+      horizonMonths,
+      ...(changeMeta?.changeJustification
+        ? {
+            changeJustification: changeMeta.changeJustification,
+            changeNature: changeMeta.changeNature ?? null,
+          }
+        : {}),
+    },
   });
 }
 

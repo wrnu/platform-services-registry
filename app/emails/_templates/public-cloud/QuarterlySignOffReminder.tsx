@@ -47,8 +47,8 @@ export default function QuarterlySignOffReminder({
         Quarterly accountability for <strong>{productName}</strong> ({licencePlate}) is still incomplete.
       </Text>
       <Text>Outstanding checklist items:</Text>
-      <ChecklistItem done={checklist.forecastMonthsAdded} label="Extend forecast months 21–24" />
-      <ChecklistItem done={checklist.forecastMonthsReviewed} label="Review prior 21 forecast months" />
+      <ChecklistItem done={checklist.forecastMonthsAdded} label="Extend forecast months 13–24" />
+      <ChecklistItem done={checklist.forecastMonthsReviewed} label="Review 24-month forecast" />
       <ChecklistItem done={checklist.membersReviewed} label="Review team members" />
       <ChecklistItem done={checklist.spendLookbackReviewed} label="Review past three months of spend" />
       <ChecklistItem done={checklist.softQrCompleted} label="Complete soft quarterly review" />

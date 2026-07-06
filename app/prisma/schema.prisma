@@ -845,7 +845,7 @@ model CloudCostForecast {
   licencePlate         String
   status               CloudCostForecastStatus
   version              Int
-  horizonMonths        Int                     @default(36)
+  horizonMonths        Int                     @default(24)
   monthlyValues        ForecastMonthlyValue[]
   submittedAt          DateTime?
   submittedById        String?                 @db.ObjectId
@@ -854,6 +854,8 @@ model CloudCostForecast {
   rejectedAt           DateTime?
   rejectedById         String?                 @db.ObjectId
   rejectionReason      String?
+  changeJustification  String?
+  changeNature         String?
   sourceBudgetSnapshot Json?
   createdAt            DateTime                @default(now())
   updatedAt            DateTime                @updatedAt

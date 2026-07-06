@@ -44,7 +44,7 @@ export const POST = createApiHandler({
   }
 
   let monthlyValues = body?.monthlyValues;
-  const horizonMonths = body?.horizonMonths ?? 36;
+  const horizonMonths = body?.horizonMonths ?? 24;
 
   if (!monthlyValues?.length) {
     monthlyValues = seedForecastFromProductBudget(

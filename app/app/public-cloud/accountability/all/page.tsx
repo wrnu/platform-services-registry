@@ -6,7 +6,10 @@ import Table from '@/components/generic/table/Table';
 import { GlobalPermissions } from '@/constants';
 import { accountabilitySorts } from '@/constants/accountability';
 import createClientPage from '@/core/client-page';
-import { searchPublicCloudAccountability } from '@/services/backend/public-cloud/accountability';
+import {
+  searchPublicCloudAccountability,
+  downloadBundledAccountabilityExport,
+} from '@/services/backend/public-cloud/accountability';
 import { PublicCloudAccountabilitySearchRow } from '@/services/db/public-cloud-accountability';
 import FilterPanel from './FilterPanel';
 import { pageState } from './state';
@@ -47,6 +50,7 @@ export default accountabilityPage(() => {
         pageState.page = 1;
         pageState.search = searchTerm;
       }}
+      onExport={async () => downloadBundledAccountabilityExport(snap.provider)}
       onSort={(sortValue) => {
         pageState.page = 1;
         pageState.sortValue = sortValue;

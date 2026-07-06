@@ -21,8 +21,8 @@ export default function QuarterlyForecastReminder({ productName, licencePlate, q
         It is time to update the fiscal year cloud spend forecast for <strong>{productName}</strong> ({licencePlate}).
       </Text>
       <Text>
-        Please extend months 21–24, review the prior 21 months, update team members, review past three months of spend,
-        complete the soft quarterly review, and obtain PO sign-off.
+        Please extend months 13–24, review the full 24-month forecast, update team members, review past three months of
+        spend, complete the soft quarterly review, and obtain PO sign-off.
       </Text>
       <LinkButton href={`/public-cloud/products/${licencePlate}/edit`}>Open accountability page</LinkButton>
     </PublicCloudLayout>

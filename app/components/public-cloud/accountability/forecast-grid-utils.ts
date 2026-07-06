@@ -7,8 +7,8 @@ export type MonthlyValue = {
 
 export type ForecastCellStatus = 'confirmed' | 'needsReview' | 'suggested' | 'past';
 
-/** Current fiscal year plus two future fiscal years (April–March). */
-export const FISCAL_FORECAST_YEARS = 3;
+/** Current fiscal year plus one future fiscal year (April–March). */
+export const FISCAL_FORECAST_YEARS = 2;
 export const FISCAL_FORECAST_HORIZON_MONTHS = FISCAL_FORECAST_YEARS * 12;
 
 const FISCAL_YEAR_START_MONTH = 4;
@@ -283,4 +283,82 @@ export function copyAmountAcrossEditableMonths(
 ): MonthlyValue[] {
   const sourceAmount = values[sourceIndex]?.amount ?? 0;
   return values.map((v, i) => (isEditableForecastCell(statuses[i]) ? { ...v, amount: sourceAmount } : v));
+}
+
+/** Copy a source month's amount to all later editable cells. */
+export function applyAmountToFutureMonths(
+  values: MonthlyValue[],
+  statuses: ForecastCellStatus[],
+  sourceIndex: number,
+  amount: number,
+): MonthlyValue[] {
+  return values.map((v, i) => {
+    if (i <= sourceIndex || !isEditableForecastCell(statuses[i])) {
+      return v;
+    }
+    return { ...v, amount };
+  });
+}
+
+export function isInProgressFiscalYear(fyChunk: FiscalYearChunk, now = new Date()) {
+  const nowYear = now.getFullYear();
+  const nowMonth = now.getMonth() + 1;
+  const first = fyChunk.months[0];
+  const last = fyChunk.months[fyChunk.months.length - 1];
+  const nowIndex = nowYear * 12 + nowMonth;
+  const startIndex = first.year * 12 + first.month;
+  const endIndex = last.year * 12 + last.month;
+  return nowIndex >= startIndex && nowIndex <= endIndex;
+}
+
+export function getAdjacentFiscalYearPercentChange(fiscalYearChunks: FiscalYearChunk[], chunkIndex: number) {
+  if (chunkIndex <= 0) return null;
+  const currentTotal = sumMonthlyValues(fiscalYearChunks[chunkIndex].months);
+  const previousTotal = sumMonthlyValues(fiscalYearChunks[chunkIndex - 1].months);
+  if (previousTotal <= 0) return null;
+  return ((currentTotal - previousTotal) / previousTotal) * 100;
+}
+
+export type ForecastIncrease = {
+  year: number;
+  month: number;
+  previousAmount: number;
+  newAmount: number;
+};
+
+export function getForecastIncreases(proposed: MonthlyValue[], baseline: MonthlyValue[], now = new Date()) {
+  const baselineByKey = new Map(baseline.map((v) => [monthKey(v.year, v.month), v]));
+  const increases: ForecastIncrease[] = [];
+
+  for (const value of proposed) {
+    if (isPastMonth(value.year, value.month, now)) continue;
+    const previous = baselineByKey.get(monthKey(value.year, value.month))?.amount ?? 0;
+    if (value.amount > previous) {
+      increases.push({
+        year: value.year,
+        month: value.month,
+        previousAmount: previous,
+        newAmount: value.amount,
+      });
+    }
+  }
+
+  return increases;
+}
+
+export function getProviderSpendLabel(provider?: string) {
+  switch (provider) {
+    case 'AZURE':
+      return 'Azure Spend';
+    case 'AWS':
+    case 'AWS_LZA':
+      return 'AWS Spend';
+    default:
+      return 'Cloud Spend';
+  }
+}
+
+export function formatPercentChange(value: number) {
+  const rounded = value.toFixed(1);
+  return `${value > 0 ? '+' : ''}${rounded}%`;
 }
