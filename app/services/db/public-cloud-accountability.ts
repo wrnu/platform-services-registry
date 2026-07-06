@@ -1,0 +1,659 @@
+import {
+  buildFiscalForecastMonths,
+  FISCAL_FORECAST_YEARS,
+  preserveLockedPastMonthlyValues,
+} from '@/components/public-cloud/accountability/forecast-grid-utils';
+import prisma from '@/core/prisma';
+import { parsePaginationParams } from '@/helpers/pagination';
+import {
+  AccountabilityAlertLevel,
+  AccountabilityAlertStatus,
+  AccountabilityStatus,
+  CloudCostForecastStatus,
+  Prisma,
+  Provider,
+  ProjectStatus,
+  QuarterlyReviewStatus,
+} from '@/prisma/client';
+import type {
+  CspConsumptionAlert,
+  CspConsumptionHistory,
+  CspConsumptionSnapshot,
+} from '@/validation-schemas/cloud-cost';
+
+function getCurrentBillingPeriod() {
+  const now = new Date();
+  return { year: now.getFullYear(), month: now.getMonth() + 1 };
+}
+
+function getCurrentFiscalQuarter(date = new Date()) {
+  const month = date.getMonth() + 1;
+  const quarter = Math.ceil(month / 3);
+  return { fiscalYear: date.getFullYear(), quarter };
+}
+
+export async function getActiveApprovedForecast(licencePlate: string) {
+  return prisma.cloudCostForecast.findFirst({
+    where: { licencePlate, status: CloudCostForecastStatus.APPROVED },
+    orderBy: { version: 'desc' },
+  });
+}
+
+export function getForecastAmountForMonth(
+  forecast: { monthlyValues: { year: number; month: number; amount: number }[] } | null,
+  year: number,
+  month: number,
+) {
+  if (!forecast) return 0;
+  const entry = forecast.monthlyValues.find((v) => v.year === year && v.month === month);
+  return entry?.amount ?? 0;
+}
+
+export async function upsertConsumptionSnapshot(data: CspConsumptionSnapshot) {
+  const { year, month } = data.billingPeriod;
+  const asOfDate = new Date(data.asOf);
+
+  const product = await prisma.publicCloudProduct.findFirst({
+    where: { licencePlate: data.licencePlate },
+  });
+  if (!product) {
+    throw new Error(`Unknown licence plate: ${data.licencePlate}`);
+  }
+
+  const existing = await prisma.cloudSpendSnapshot.findFirst({
+    where: {
+      licencePlate: data.licencePlate,
+      periodYear: year,
+      periodMonth: month,
+    },
+    orderBy: { asOfDate: 'desc' },
+  });
+
+  const snapshotData = {
+    licencePlate: data.licencePlate,
+    provider: data.provider,
+    periodYear: year,
+    periodMonth: month,
+    currency: data.currency,
+    amountToDate: data.spendToDate,
+    projectedMonthEnd: data.projectedMonthEnd,
+    forecastAmount: data.currentMonthForecast,
+    varianceAmount: data.varianceAmount,
+    variancePercent: data.variancePercent,
+    consumptionPercent: data.consumptionPercentOfForecast,
+    dayOfMonth: data.dayOfMonth,
+    daysInMonth: data.daysInMonth,
+    asOfDate,
+    accounts: data.accounts ?? [],
+  };
+
+  let snapshot;
+  if (existing) {
+    snapshot = await prisma.cloudSpendSnapshot.update({
+      where: { id: existing.id },
+      data: snapshotData,
+    });
+  } else {
+    snapshot = await prisma.cloudSpendSnapshot.create({ data: snapshotData });
+  }
+
+  await recomputeAccountabilityState(data.licencePlate);
+  return snapshot;
+}
+
+export async function recordConsumptionAlert(data: CspConsumptionAlert) {
+  const { year, month } = data.billingPeriod;
+  const triggeredAt = new Date(data.triggeredAt);
+
+  const product = await prisma.publicCloudProduct.findFirst({
+    where: { licencePlate: data.licencePlate },
+  });
+  if (!product) {
+    throw new Error(`Unknown licence plate: ${data.licencePlate}`);
+  }
+
+  const activeForecast = await getActiveApprovedForecast(data.licencePlate);
+
+  const existingOpen = await prisma.accountabilityAlert.findFirst({
+    where: {
+      licencePlate: data.licencePlate,
+      level: data.alertType as AccountabilityAlertLevel,
+      periodYear: year,
+      periodMonth: month,
+      milestonePercent: data.milestonePercent ?? undefined,
+      status: { in: [AccountabilityAlertStatus.OPEN, AccountabilityAlertStatus.ACKNOWLEDGED] },
+    },
+  });
+
+  if (existingOpen) {
+    return prisma.accountabilityAlert.update({
+      where: { id: existingOpen.id },
+      data: {
+        triggeredAt,
+        spendToDate: data.spendToDate,
+        projectedMonthEnd: data.projectedMonthEnd,
+        forecastAmount: data.currentMonthForecast,
+        varianceAmount: data.varianceAmount,
+        variancePercent: data.variancePercent,
+        consumptionPercent: data.consumptionPercentOfForecast,
+        cspRuleKey: data.ruleKey,
+        paceDayOfMonth: data.paceDayOfMonth,
+      },
+    });
+  }
+
+  const alert = await prisma.accountabilityAlert.create({
+    data: {
+      licencePlate: data.licencePlate,
+      level: data.alertType as AccountabilityAlertLevel,
+      milestonePercent: data.milestonePercent,
+      paceDayOfMonth: data.paceDayOfMonth,
+      triggeredAt,
+      periodYear: year,
+      periodMonth: month,
+      spendToDate: data.spendToDate,
+      projectedMonthEnd: data.projectedMonthEnd,
+      forecastAmount: data.currentMonthForecast,
+      varianceAmount: data.varianceAmount,
+      variancePercent: data.variancePercent,
+      consumptionPercent: data.consumptionPercentOfForecast,
+      cspRuleKey: data.ruleKey,
+      forecastId: activeForecast?.id,
+    },
+  });
+
+  await recomputeAccountabilityState(data.licencePlate);
+  return alert;
+}
+
+export async function upsertConsumptionHistory(data: CspConsumptionHistory) {
+  const product = await prisma.publicCloudProduct.findFirst({
+    where: { licencePlate: data.licencePlate },
+  });
+  if (!product) {
+    throw new Error(`Unknown licence plate: ${data.licencePlate}`);
+  }
+
+  const months = data.months.map((m) => ({
+    year: m.billingPeriod.year,
+    month: m.billingPeriod.month,
+    currency: m.currency,
+    actualTotal: m.actualTotal,
+    forecastTotal: m.forecastTotal,
+    varianceAmount: m.varianceAmount,
+    variancePercent: m.variancePercent,
+  }));
+
+  const existing = await prisma.cloudSpendHistory.findFirst({
+    where: { licencePlate: data.licencePlate, provider: data.provider },
+  });
+
+  if (existing) {
+    return prisma.cloudSpendHistory.update({
+      where: { id: existing.id },
+      data: { months },
+    });
+  }
+
+  return prisma.cloudSpendHistory.create({
+    data: {
+      licencePlate: data.licencePlate,
+      provider: data.provider,
+      months,
+    },
+  });
+}
+
+export async function recomputeAccountabilityState(licencePlate: string) {
+  const activeForecast = await getActiveApprovedForecast(licencePlate);
+  const openAlerts = await prisma.accountabilityAlert.findMany({
+    where: {
+      licencePlate,
+      status: { in: [AccountabilityAlertStatus.OPEN, AccountabilityAlertStatus.ACKNOWLEDGED] },
+    },
+  });
+
+  const levelRank: Record<AccountabilityAlertLevel, number> = {
+    MILESTONE: 0,
+    PACE: 1,
+    A1: 2,
+    A2: 3,
+    A3: 4,
+  };
+
+  let highestOpenAlert: AccountabilityAlertLevel | null = null;
+  for (const alert of openAlerts) {
+    if (!highestOpenAlert || levelRank[alert.level] > levelRank[highestOpenAlert]) {
+      highestOpenAlert = alert.level;
+    }
+  }
+
+  let status: AccountabilityStatus = AccountabilityStatus.COMPLIANT;
+
+  if (!activeForecast) {
+    status = AccountabilityStatus.FORECAST_REQUIRED;
+  } else if (
+    openAlerts.some((a) => a.level === AccountabilityAlertLevel.A3 || a.level === AccountabilityAlertLevel.A2)
+  ) {
+    status = AccountabilityStatus.VARIANCE_REVIEW_REQUIRED;
+  } else if (openAlerts.some((a) => levelRank[a.level] >= levelRank[AccountabilityAlertLevel.A1])) {
+    status = AccountabilityStatus.VARIANCE_REVIEW_REQUIRED;
+  }
+
+  const quarterly = await getOrCreateCurrentQuarterlyReview(licencePlate);
+  if (quarterly.status === QuarterlyReviewStatus.ESCALATED) {
+    status = AccountabilityStatus.ESCALATED;
+  } else if (quarterly.status === QuarterlyReviewStatus.PENDING && !quarterly.poSignedOff) {
+    const now = new Date();
+    const quarterStartMonth = (quarterly.quarter - 1) * 3 + 1;
+    const mPlusOne = new Date(quarterly.fiscalYear, quarterStartMonth, 1);
+    if (now > mPlusOne) {
+      status = AccountabilityStatus.FORECAST_REVIEW_REQUIRED;
+    }
+  }
+
+  return prisma.cloudCostAccountabilityState.upsert({
+    where: { licencePlate },
+    create: {
+      licencePlate,
+      status,
+      highestOpenAlert,
+      activeForecastId: activeForecast?.id,
+      onEscalationList: quarterly.status === QuarterlyReviewStatus.ESCALATED,
+      evaluatedAt: new Date(),
+    },
+    update: {
+      status,
+      highestOpenAlert,
+      activeForecastId: activeForecast?.id,
+      onEscalationList: quarterly.status === QuarterlyReviewStatus.ESCALATED,
+      evaluatedAt: new Date(),
+    },
+  });
+}
+
+export async function getOrCreateCurrentQuarterlyReview(licencePlate: string) {
+  const { fiscalYear, quarter } = getCurrentFiscalQuarter();
+  const existing = await prisma.quarterlyForecastReview.findFirst({
+    where: { licencePlate, fiscalYear, quarter },
+  });
+  if (existing) return existing;
+
+  return prisma.quarterlyForecastReview.create({
+    data: { licencePlate, fiscalYear, quarter },
+  });
+}
+
+export async function getAccountabilitySummary(licencePlate: string) {
+  const { year, month } = getCurrentBillingPeriod();
+
+  const [state, snapshot, activeForecast, openAlerts, quarterlyReview, spendHistory] = await Promise.all([
+    prisma.cloudCostAccountabilityState.findUnique({ where: { licencePlate } }),
+    prisma.cloudSpendSnapshot.findFirst({
+      where: { licencePlate, periodYear: year, periodMonth: month },
+      orderBy: { asOfDate: 'desc' },
+    }),
+    getActiveApprovedForecast(licencePlate),
+    prisma.accountabilityAlert.findMany({
+      where: {
+        licencePlate,
+        status: { in: [AccountabilityAlertStatus.OPEN, AccountabilityAlertStatus.ACKNOWLEDGED] },
+      },
+      orderBy: { triggeredAt: 'desc' },
+    }),
+    getOrCreateCurrentQuarterlyReview(licencePlate),
+    prisma.cloudSpendHistory.findFirst({ where: { licencePlate } }),
+  ]);
+
+  const forecasts = await prisma.cloudCostForecast.findMany({
+    where: { licencePlate },
+    orderBy: { version: 'desc' },
+    take: 10,
+  });
+
+  return {
+    state,
+    snapshot,
+    activeForecast,
+    forecasts,
+    openAlerts,
+    quarterlyReview,
+    spendHistory,
+  };
+}
+
+export async function getCurrentMonthSpend(licencePlate: string) {
+  const { year, month } = getCurrentBillingPeriod();
+  const snapshot = await prisma.cloudSpendSnapshot.findFirst({
+    where: { licencePlate, periodYear: year, periodMonth: month },
+    orderBy: { asOfDate: 'desc' },
+  });
+
+  return {
+    billingPeriod: { year, month },
+    snapshot,
+  };
+}
+
+export async function createForecastDraft(
+  licencePlate: string,
+  monthlyValues: { year: number; month: number; amount: number; currency: string }[],
+  horizonMonths: number,
+  userId: string,
+) {
+  const latest = await prisma.cloudCostForecast.findFirst({
+    where: { licencePlate },
+    orderBy: { version: 'desc' },
+  });
+
+  const version = latest ? latest.version + 1 : 1;
+
+  const product = await prisma.publicCloudProduct.findFirst({ where: { licencePlate } });
+  const sourceBudgetSnapshot = product?.budget ?? undefined;
+
+  return prisma.cloudCostForecast.create({
+    data: {
+      licencePlate,
+      status: CloudCostForecastStatus.DRAFT,
+      version,
+      horizonMonths,
+      monthlyValues,
+      sourceBudgetSnapshot,
+    },
+  });
+}
+
+export async function updateForecastDraft(
+  forecastId: string,
+  monthlyValues: { year: number; month: number; amount: number; currency: string }[],
+  horizonMonths: number,
+) {
+  const forecast = await prisma.cloudCostForecast.findUnique({ where: { id: forecastId } });
+  if (!forecast || forecast.status !== CloudCostForecastStatus.DRAFT) {
+    throw new Error('Only draft forecasts can be updated');
+  }
+
+  const existingValues =
+    (forecast.monthlyValues as {
+      year: number;
+      month: number;
+      amount: number;
+      currency: string;
+    }[]) ?? [];
+
+  const sanitizedValues = preserveLockedPastMonthlyValues(existingValues, monthlyValues);
+
+  return prisma.cloudCostForecast.update({
+    where: { id: forecastId },
+    data: { monthlyValues: sanitizedValues, horizonMonths },
+  });
+}
+
+export async function submitForecast(forecastId: string, userId: string) {
+  const forecast = await prisma.cloudCostForecast.findUnique({ where: { id: forecastId } });
+  if (!forecast || forecast.status !== CloudCostForecastStatus.DRAFT) {
+    throw new Error('Only draft forecasts can be submitted');
+  }
+
+  return prisma.cloudCostForecast.update({
+    where: { id: forecastId },
+    data: {
+      status: CloudCostForecastStatus.PENDING_APPROVAL,
+      submittedAt: new Date(),
+      submittedById: userId,
+    },
+  });
+}
+
+export async function approveForecast(forecastId: string, userId: string) {
+  const forecast = await prisma.cloudCostForecast.findUnique({ where: { id: forecastId } });
+  if (!forecast || forecast.status !== CloudCostForecastStatus.PENDING_APPROVAL) {
+    throw new Error('Only pending forecasts can be approved');
+  }
+
+  await prisma.cloudCostForecast.updateMany({
+    where: {
+      licencePlate: forecast.licencePlate,
+      status: CloudCostForecastStatus.APPROVED,
+    },
+    data: { status: CloudCostForecastStatus.SUPERSEDED },
+  });
+
+  const approved = await prisma.cloudCostForecast.update({
+    where: { id: forecastId },
+    data: {
+      status: CloudCostForecastStatus.APPROVED,
+      approvedAt: new Date(),
+      approvedById: userId,
+    },
+  });
+
+  await recomputeAccountabilityState(forecast.licencePlate);
+  return approved;
+}
+
+export async function acknowledgeAlert(alertId: string, userId: string, explanation?: string) {
+  return prisma.accountabilityAlert.update({
+    where: { id: alertId },
+    data: {
+      status: AccountabilityAlertStatus.ACKNOWLEDGED,
+      acknowledgedAt: new Date(),
+      acknowledgedById: userId,
+      explanation: explanation ?? undefined,
+    },
+  });
+}
+
+export async function resolveAlert(alertId: string, userId: string, resolutionReason: string, explanation?: string) {
+  const alert = await prisma.accountabilityAlert.update({
+    where: { id: alertId },
+    data: {
+      status: AccountabilityAlertStatus.RESOLVED,
+      resolvedAt: new Date(),
+      resolvedById: userId,
+      resolutionReason,
+      explanation: explanation ?? undefined,
+    },
+  });
+
+  await recomputeAccountabilityState(alert.licencePlate);
+  return alert;
+}
+
+export async function updateQuarterlyReview(
+  licencePlate: string,
+  data: {
+    forecastMonthsAdded?: boolean;
+    forecastMonthsReviewed?: boolean;
+    membersReviewed?: boolean;
+    spendLookbackReviewed?: boolean;
+    softQrCompleted?: boolean;
+  },
+) {
+  const review = await getOrCreateCurrentQuarterlyReview(licencePlate);
+  return prisma.quarterlyForecastReview.update({
+    where: { id: review.id },
+    data,
+  });
+}
+
+export async function signOffQuarterlyReview(licencePlate: string, userId: string) {
+  const review = await getOrCreateCurrentQuarterlyReview(licencePlate);
+  const updated = await prisma.quarterlyForecastReview.update({
+    where: { id: review.id },
+    data: {
+      poSignedOff: true,
+      poSignedOffAt: new Date(),
+      poSignedOffById: userId,
+      status: QuarterlyReviewStatus.COMPLETE,
+    },
+  });
+  await recomputeAccountabilityState(licencePlate);
+  return updated;
+}
+
+export function seedForecastFromProductBudget(
+  licencePlate: string,
+  provider: Provider,
+  budget: { dev: number; test: number; prod: number; tools: number },
+  environmentsEnabled: {
+    development: boolean;
+    test: boolean;
+    production: boolean;
+    tools: boolean;
+  },
+) {
+  const currency = provider === Provider.AZURE ? 'CAD' : 'USD';
+  let total = 0;
+  if (environmentsEnabled.development) total += budget.dev;
+  if (environmentsEnabled.test) total += budget.test;
+  if (environmentsEnabled.production) total += budget.prod;
+  if (environmentsEnabled.tools) total += budget.tools;
+
+  const now = new Date();
+  return buildFiscalForecastMonths(FISCAL_FORECAST_YEARS, total, currency, now);
+}
+
+export type PublicCloudAccountabilitySearchRow = {
+  id: string;
+  licencePlate: string;
+  name: string;
+  provider: Provider;
+  status: AccountabilityStatus;
+  highestOpenAlert: AccountabilityAlertLevel | null;
+  onEscalationList: boolean;
+  variancePercent: number | null;
+  quarterlyReviewStatus: QuarterlyReviewStatus | null;
+  poSignedOff: boolean;
+  evaluatedAt: Date | null;
+};
+
+export async function searchPublicCloudAccountability({
+  search = '',
+  page,
+  pageSize,
+  status,
+  provider,
+  highestOpenAlert,
+  onEscalationList,
+  sortKey = 'licencePlate',
+  sortOrder = Prisma.SortOrder.asc,
+  skip,
+  take,
+}: {
+  search?: string;
+  page?: number;
+  pageSize?: number;
+  status?: AccountabilityStatus;
+  provider?: Provider;
+  highestOpenAlert?: AccountabilityAlertLevel;
+  onEscalationList?: boolean;
+  sortKey?: string;
+  sortOrder?: Prisma.SortOrder;
+  skip?: number;
+  take?: number;
+}) {
+  const _isNumber = (v: unknown) => typeof v === 'number';
+
+  if (!_isNumber(skip) && !_isNumber(take) && page && pageSize) {
+    ({ skip, take } = parsePaginationParams(page, pageSize, 10));
+  }
+
+  const productWhere: Prisma.PublicCloudProductWhereInput = {
+    status: ProjectStatus.ACTIVE,
+  };
+
+  const trimmedSearch = search.trim();
+  if (trimmedSearch) {
+    productWhere.OR = [
+      { licencePlate: { contains: trimmedSearch, mode: Prisma.QueryMode.insensitive } },
+      { name: { contains: trimmedSearch, mode: Prisma.QueryMode.insensitive } },
+    ];
+  }
+
+  if (provider) {
+    productWhere.provider = provider;
+  }
+
+  const products = await prisma.publicCloudProduct.findMany({
+    where: productWhere,
+    select: {
+      id: true,
+      licencePlate: true,
+      name: true,
+      provider: true,
+    },
+  });
+
+  const licencePlates = products.map((p) => p.licencePlate);
+
+  const [states, snapshots, quarterlyReviews] = await Promise.all([
+    prisma.cloudCostAccountabilityState.findMany({
+      where: { licencePlate: { in: licencePlates } },
+    }),
+    prisma.cloudSpendSnapshot.findMany({
+      where: {
+        licencePlate: { in: licencePlates },
+        periodYear: getCurrentBillingPeriod().year,
+        periodMonth: getCurrentBillingPeriod().month,
+      },
+    }),
+    prisma.quarterlyForecastReview.findMany({
+      where: {
+        licencePlate: { in: licencePlates },
+        fiscalYear: getCurrentFiscalQuarter().fiscalYear,
+        quarter: getCurrentFiscalQuarter().quarter,
+      },
+    }),
+  ]);
+
+  const stateMap = new Map(states.map((s) => [s.licencePlate, s]));
+  const snapshotMap = new Map(snapshots.map((s) => [s.licencePlate, s]));
+  const quarterlyMap = new Map(quarterlyReviews.map((q) => [q.licencePlate, q]));
+
+  let rows: PublicCloudAccountabilitySearchRow[] = products.map((product) => {
+    const state = stateMap.get(product.licencePlate);
+    const snapshot = snapshotMap.get(product.licencePlate);
+    const quarterly = quarterlyMap.get(product.licencePlate);
+
+    return {
+      id: product.id,
+      licencePlate: product.licencePlate,
+      name: product.name,
+      provider: product.provider,
+      status: state?.status ?? AccountabilityStatus.FORECAST_REQUIRED,
+      highestOpenAlert: state?.highestOpenAlert ?? null,
+      onEscalationList: state?.onEscalationList ?? false,
+      variancePercent: snapshot?.variancePercent ?? null,
+      quarterlyReviewStatus: quarterly?.status ?? null,
+      poSignedOff: quarterly?.poSignedOff ?? false,
+      evaluatedAt: state?.evaluatedAt ?? null,
+    };
+  });
+
+  if (status) {
+    rows = rows.filter((r) => r.status === status);
+  }
+  if (highestOpenAlert) {
+    rows = rows.filter((r) => r.highestOpenAlert === highestOpenAlert);
+  }
+  if (onEscalationList === true) {
+    rows = rows.filter((r) => r.onEscalationList);
+  }
+
+  const sortField = sortKey === 'name' ? 'name' : sortKey === 'status' ? 'status' : 'licencePlate';
+  rows.sort((a, b) => {
+    const aVal = a[sortField as keyof PublicCloudAccountabilitySearchRow];
+    const bVal = b[sortField as keyof PublicCloudAccountabilitySearchRow];
+    if (aVal == null && bVal == null) return 0;
+    if (aVal == null) return 1;
+    if (bVal == null) return -1;
+    const cmp = String(aVal).localeCompare(String(bVal));
+    return sortOrder === Prisma.SortOrder.desc ? -cmp : cmp;
+  });
+
+  const totalCount = rows.length;
+  const data = rows.slice(skip ?? 0, (skip ?? 0) + (take ?? rows.length));
+
+  return { data, totalCount };
+}

@@ -735,3 +735,230 @@ model Organization {
   publicCloudProducts         PublicCloudProduct[]      @relation("organization")
   publicCloudRequestDataList  PublicCloudRequestData[]  @relation("organization")
 }
+
+enum CloudCostForecastStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  SUPERSEDED
+}
+
+enum AccountabilityAlertLevel {
+  MILESTONE
+  PACE
+  A1
+  A2
+  A3
+}
+
+enum AccountabilityAlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+enum QuarterlyReviewStatus {
+  PENDING
+  COMPLETE
+  ESCALATED
+}
+
+enum AccountabilityStatus {
+  COMPLIANT
+  FORECAST_REQUIRED
+  FORECAST_REVIEW_REQUIRED
+  VARIANCE_REVIEW_REQUIRED
+  ESCALATED
+  NON_COMPLIANT
+}
+
+enum ProjectionMethod {
+  LINEAR_EXTRAPOLATION
+  PACE_COMPARISON
+}
+
+type VarianceThresholdTier {
+  percentAbove    Float?
+  dollarsAbove    Float?
+  minDollarsAbove Float?
+}
+
+type CloudCostVarianceThresholds {
+  a1 VarianceThresholdTier
+  a2 VarianceThresholdTier
+  a3 VarianceThresholdTier
+}
+
+type CloudCostConsumptionMilestones {
+  tiers       Int[]
+  stepPercent Int
+}
+
+type CloudCostEarlyPaceWarning {
+  percentOfForecast Float
+  byDayOfMonth      Int
+}
+
+type CloudCostForecastPolicy {
+  horizonMonths      Int
+  quarterStartMonths Int[]
+}
+
+type CloudCostQuarterlyReviewPolicy {
+  softQrRequired      Boolean
+  spendLookbackMonths Int
+  poSignOffRequired   Boolean
+}
+
+type CloudCostReminderPolicy {
+  weeklyUntilSignOff Boolean
+  escalateAtMPlusOne Boolean
+}
+
+type ForecastMonthlyValue {
+  year     Int
+  month    Int
+  amount   Float
+  currency String
+}
+
+type SpendAccountBreakdown {
+  accountId   String
+  environment String?
+  spendToDate Float
+  currency    String
+}
+
+type ClosedMonthSpend {
+  year            Int
+  month           Int
+  currency        String
+  actualTotal     Float
+  forecastTotal   Float?
+  varianceAmount  Float?
+  variancePercent Float?
+}
+
+model CloudCostForecast {
+  id                   String                  @id @default(auto()) @map("_id") @db.ObjectId
+  licencePlate         String
+  status               CloudCostForecastStatus
+  version              Int
+  horizonMonths        Int                     @default(36)
+  monthlyValues        ForecastMonthlyValue[]
+  submittedAt          DateTime?
+  submittedById        String?                 @db.ObjectId
+  approvedAt           DateTime?
+  approvedById         String?                 @db.ObjectId
+  rejectedAt           DateTime?
+  rejectedById         String?                 @db.ObjectId
+  rejectionReason      String?
+  sourceBudgetSnapshot Json?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+}
+
+model CloudSpendSnapshot {
+  id                 String                  @id @default(auto()) @map("_id") @db.ObjectId
+  licencePlate       String
+  provider           Provider
+  periodYear         Int
+  periodMonth        Int
+  currency           String
+  amountToDate       Float
+  projectedMonthEnd  Float
+  forecastAmount     Float
+  varianceAmount     Float
+  variancePercent    Float
+  consumptionPercent Float
+  dayOfMonth         Int?
+  daysInMonth        Int?
+  asOfDate           DateTime
+  accounts           SpendAccountBreakdown[]
+  createdAt          DateTime                @default(now())
+}
+
+model AccountabilityAlert {
+  id                 String                    @id @default(auto()) @map("_id") @db.ObjectId
+  licencePlate       String
+  level              AccountabilityAlertLevel
+  status             AccountabilityAlertStatus @default(OPEN)
+  milestonePercent   Int?
+  paceDayOfMonth     Int?
+  triggeredAt        DateTime
+  periodYear         Int
+  periodMonth        Int
+  spendToDate        Float
+  projectedMonthEnd  Float
+  forecastAmount     Float
+  varianceAmount     Float
+  variancePercent    Float
+  consumptionPercent Float
+  cspRuleKey         String?
+  forecastId         String?                   @db.ObjectId
+  explanation        String?
+  acknowledgedAt     DateTime?
+  acknowledgedById   String?                   @db.ObjectId
+  resolvedAt         DateTime?
+  resolvedById       String?                   @db.ObjectId
+  resolutionReason   String?
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+}
+
+model QuarterlyForecastReview {
+  id                     String                @id @default(auto()) @map("_id") @db.ObjectId
+  licencePlate           String
+  fiscalYear             Int
+  quarter                Int
+  forecastMonthsAdded    Boolean               @default(false)
+  forecastMonthsReviewed Boolean               @default(false)
+  membersReviewed        Boolean               @default(false)
+  spendLookbackReviewed  Boolean               @default(false)
+  softQrCompleted        Boolean               @default(false)
+  poSignedOff            Boolean               @default(false)
+  poSignedOffAt          DateTime?
+  poSignedOffById        String?               @db.ObjectId
+  escalatedAt            DateTime?
+  status                 QuarterlyReviewStatus @default(PENDING)
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+}
+
+model CloudSpendHistory {
+  id           String             @id @default(auto()) @map("_id") @db.ObjectId
+  licencePlate String
+  provider     Provider
+  months       ClosedMonthSpend[]
+  updatedAt    DateTime           @updatedAt
+}
+
+model CloudCostAccountabilityState {
+  id               String                    @id @default(auto()) @map("_id") @db.ObjectId
+  licencePlate     String                    @unique
+  status           AccountabilityStatus
+  highestOpenAlert AccountabilityAlertLevel?
+  activeForecastId String?                   @db.ObjectId
+  onEscalationList Boolean                   @default(false)
+  evaluatedAt      DateTime
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+}
+
+model CloudCostRulesConfig {
+  id                     String                         @id @default(auto()) @map("_id") @db.ObjectId
+  version                Int
+  isActive               Boolean                        @default(false)
+  effectiveAt            DateTime?
+  varianceThresholds     CloudCostVarianceThresholds
+  consumptionMilestones  CloudCostConsumptionMilestones
+  earlyPaceWarning       CloudCostEarlyPaceWarning
+  forecastPolicy         CloudCostForecastPolicy
+  quarterlyReview        CloudCostQuarterlyReviewPolicy
+  reminderPolicy         CloudCostReminderPolicy
+  monthlyRecapDayOfMonth Int                            @default(1)
+  projectionMethod       ProjectionMethod               @default(LINEAR_EXTRAPOLATION)
+  createdById            String?                        @db.ObjectId
+  createdAt              DateTime                       @default(now())
+}

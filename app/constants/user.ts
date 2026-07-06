@@ -38,6 +38,7 @@ export enum GlobalPermissions {
 
   ReviewPublicCloudBilling = 'reviewPublicCloudBilling',
   ViewPublicCloudBilling = 'viewPublicCloudBilling',
+  ViewPublicCloudAccountability = 'viewPublicCloudAccountability',
   DownloadPublicCloudBillingMou = 'downloadPublicCloudBillingMou',
 
   ViewEvents = 'viewEvents',
@@ -45,6 +46,7 @@ export enum GlobalPermissions {
   ViewTasks = 'viewTasks',
   ViewPrivateCloudUnitPrices = 'viewPrivateCloudUnitPrices',
   ManagePrivateCloudUnitPrices = 'managePrivateCloudUnitPrices',
+  ManagePublicCloudCostRules = 'managePublicCloudCostRules',
   SendTaskEmails = 'sendTaskEmails',
   EditUsers = 'editUsers',
   EditUserRoles = 'editUserRoles',

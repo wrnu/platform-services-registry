@@ -6,6 +6,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession, signIn } from 'next-auth/react';
+import { useEffect, useState } from 'react';
 import Logo from '@/components/assets/logo.svg';
 import UserMenu from '@/components/layouts/UserMenu';
 import SideTasks from './SideTasks';
@@ -20,6 +21,16 @@ function loginWithRedirect(defaultPath = '/home') {
 export default function Header() {
   const { data: session, status: sessionStatus } = useSession();
   const pathname = usePathname();
+  const [sessionTimedOut, setSessionTimedOut] = useState(false);
+
+  useEffect(() => {
+    if (sessionStatus !== 'loading') {
+      setSessionTimedOut(false);
+      return;
+    }
+    const timer = setTimeout(() => setSessionTimedOut(true), 2500);
+    return () => clearTimeout(timer);
+  }, [sessionStatus]);
 
   let context = '';
   if (pathname.startsWith('/private-cloud')) {
@@ -29,7 +40,7 @@ export default function Header() {
   }
 
   let rightSection = <Loader color="blue" type="dots" />;
-  if (sessionStatus !== 'loading') {
+  if (sessionStatus !== 'loading' || sessionTimedOut) {
     rightSection = session ? (
       <>
         <SideTasks className="mr-3" />

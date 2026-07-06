@@ -14,6 +14,16 @@ localmac:
 	export MACHINE_HOST_IP=$$(ipconfig getifaddr en0); \
 	docker-compose -f ./sandbox/docker-compose.yml -f ./sandbox/docker-compose-arm64.yml up $(DETACH_FLAG) --build --remove-orphans
 
+.PHONY: tunnel tunnel-stop tunnel-status
+tunnel:
+	TUNNEL_DETACHED=$(DETACHED) ./sandbox/cloudflared-tunnel.sh start
+
+tunnel-stop:
+	./sandbox/cloudflared-tunnel.sh stop
+
+tunnel-status:
+	./sandbox/cloudflared-tunnel.sh status
+
 .PHONY: dev
 dev:
 	pnpm --dir app run prisma-push

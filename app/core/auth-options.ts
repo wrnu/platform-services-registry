@@ -313,6 +313,18 @@ export async function generateSession({
       session.isBillingManager ||
       session.isBillingReader,
 
+    viewPublicCloudAccountability:
+      session.isAdmin ||
+      session.isPublicAdmin ||
+      session.isPublicReviewer ||
+      session.isBillingReviewer ||
+      session.isBillingManager ||
+      session.isBillingReader ||
+      session.isUser,
+
+    managePublicCloudCostRules:
+      session.isAdmin || session.isPublicAdmin || session.isBillingReviewer || session.isBillingManager,
+
     viewPrivateCloudBilling:
       session.isAdmin || session.isBillingManager || session.isBillingReader || session.isFinanceManager,
 

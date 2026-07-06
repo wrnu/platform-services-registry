@@ -62,6 +62,11 @@ export default publicCloudProductSecurityACS(({ getPathParams, children }) => {
       href: `/public-cloud/products/${licencePlate}/billing`,
     },
     {
+      label: 'COSTS',
+      name: 'costs',
+      href: `/public-cloud/products/${licencePlate}/costs`,
+    },
+    {
       label: 'REQUESTS',
       name: 'requests',
       href: `/public-cloud/products/${licencePlate}/requests`,

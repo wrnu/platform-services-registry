@@ -1,5 +1,16 @@
 /** @type {import('next').NextConfig} */
+function tunnelDevOrigin() {
+  if (process.env.NODE_ENV === 'production') return undefined;
+  try {
+    const host = new URL(process.env.BASE_URL || 'http://localhost:3000').hostname;
+    return host === 'localhost' ? undefined : [host];
+  } catch {
+    return undefined;
+  }
+}
+
 const nextConfig = {
+  allowedDevOrigins: tunnelDevOrigin(),
   async redirects() {
     return [
       {
