@@ -1,5 +1,7 @@
 # Public Cloud Request Workflow
 
+For the technical flow from registry → NATS → provisioner → AWS/Azure landing zones, see [Public Cloud Provisioning Architecture](../development-setup/public-cloud-provisioning.md).
+
 There are three types of public cloud requests, each with a distinct workflow that leads to provisioning or completion.
 
 ---
