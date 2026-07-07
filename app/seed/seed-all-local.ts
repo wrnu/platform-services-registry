@@ -9,7 +9,7 @@ import {
   AZURE_DEMO_PLATE,
   seedAwsPublicCloudProduct,
   seedAzurePublicCloudProduct,
-} from './seed-azure-product';
+} from './seed-demo-products';
 import { seedFoundation } from './seed-foundation';
 
 async function main() {
