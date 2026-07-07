@@ -18,7 +18,7 @@ const directorStatuses = [
 
 const directorPage = createClientPage({
   permissions: [GlobalPermissions.ViewPublicCloudAccountability],
-  fallbackUrl: 'login?callbackUrl=/home',
+  fallbackUrl: '/login?callbackUrl=/home',
 });
 
 export default directorPage(() => {

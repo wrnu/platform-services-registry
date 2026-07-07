@@ -24,7 +24,7 @@ export const POST = createApiHandler({
   }
 
   try {
-    const forecast = await rejectForecast(forecastId, session.user.id, body.rejectionReason);
+    const forecast = await rejectForecast(licencePlate, forecastId, session.user.id, body.rejectionReason);
     await sendForecastRejectedEmail(licencePlate, forecast);
     return OkResponse(forecast);
   } catch (e) {

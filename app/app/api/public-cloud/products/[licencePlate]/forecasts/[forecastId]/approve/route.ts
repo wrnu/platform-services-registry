@@ -22,7 +22,7 @@ export const POST = createApiHandler({
   }
 
   try {
-    const forecast = await approveForecast(forecastId, session.user.id);
+    const forecast = await approveForecast(licencePlate, forecastId, session.user.id);
     return OkResponse(forecast);
   } catch (e) {
     return BadRequestResponse((e as Error).message);

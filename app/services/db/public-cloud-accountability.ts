@@ -1,11 +1,11 @@
 import {
   buildFiscalForecastMonths,
-  FISCAL_FORECAST_HORIZON_MONTHS,
   FISCAL_FORECAST_YEARS,
   preserveLockedPastMonthlyValues,
   isForecastHorizonComplete,
 } from '@/components/public-cloud/accountability/forecast-grid-utils';
 import prisma from '@/core/prisma';
+import { getCurrentBillingPeriod, getCurrentQuarter, getMPlusOneDate } from '@/helpers/accountability-periods';
 import { parsePaginationParams } from '@/helpers/pagination';
 import {
   AccountabilityAlertLevel,
@@ -22,17 +22,6 @@ import type {
   CspConsumptionHistory,
   CspConsumptionSnapshot,
 } from '@/validation-schemas/cloud-cost';
-
-function getCurrentBillingPeriod() {
-  const now = new Date();
-  return { year: now.getFullYear(), month: now.getMonth() + 1 };
-}
-
-function getCurrentFiscalQuarter(date = new Date()) {
-  const month = date.getMonth() + 1;
-  const quarter = Math.ceil(month / 3);
-  return { fiscalYear: date.getFullYear(), quarter };
-}
 
 export async function getActiveApprovedForecast(licencePlate: string) {
   return prisma.cloudCostForecast.findFirst({
@@ -62,15 +51,6 @@ export async function upsertConsumptionSnapshot(data: CspConsumptionSnapshot) {
     throw new Error(`Unknown licence plate: ${data.licencePlate}`);
   }
 
-  const existing = await prisma.cloudSpendSnapshot.findFirst({
-    where: {
-      licencePlate: data.licencePlate,
-      periodYear: year,
-      periodMonth: month,
-    },
-    orderBy: { asOfDate: 'desc' },
-  });
-
   const snapshotData = {
     licencePlate: data.licencePlate,
     provider: data.provider,
@@ -89,15 +69,17 @@ export async function upsertConsumptionSnapshot(data: CspConsumptionSnapshot) {
     accounts: data.accounts ?? [],
   };
 
-  let snapshot;
-  if (existing) {
-    snapshot = await prisma.cloudSpendSnapshot.update({
-      where: { id: existing.id },
-      data: snapshotData,
-    });
-  } else {
-    snapshot = await prisma.cloudSpendSnapshot.create({ data: snapshotData });
-  }
+  const snapshot = await prisma.cloudSpendSnapshot.upsert({
+    where: {
+      licencePlate_periodYear_periodMonth: {
+        licencePlate: data.licencePlate,
+        periodYear: year,
+        periodMonth: month,
+      },
+    },
+    create: snapshotData,
+    update: snapshotData,
+  });
 
   await recomputeAccountabilityState(data.licencePlate);
   return snapshot;
@@ -186,23 +168,19 @@ export async function upsertConsumptionHistory(data: CspConsumptionHistory) {
     variancePercent: m.variancePercent,
   }));
 
-  const existing = await prisma.cloudSpendHistory.findFirst({
-    where: { licencePlate: data.licencePlate, provider: data.provider },
-  });
-
-  if (existing) {
-    return prisma.cloudSpendHistory.update({
-      where: { id: existing.id },
-      data: { months },
-    });
-  }
-
-  return prisma.cloudSpendHistory.create({
-    data: {
+  return prisma.cloudSpendHistory.upsert({
+    where: {
+      licencePlate_provider: {
+        licencePlate: data.licencePlate,
+        provider: data.provider,
+      },
+    },
+    create: {
       licencePlate: data.licencePlate,
       provider: data.provider,
       months,
     },
+    update: { months },
   });
 }
 
@@ -241,10 +219,6 @@ export async function recomputeAccountabilityState(licencePlate: string) {
     )
   ) {
     status = AccountabilityStatus.FORECAST_REVIEW_REQUIRED;
-  } else if (
-    openAlerts.some((a) => a.level === AccountabilityAlertLevel.A3 || a.level === AccountabilityAlertLevel.A2)
-  ) {
-    status = AccountabilityStatus.VARIANCE_REVIEW_REQUIRED;
   } else if (openAlerts.some((a) => levelRank[a.level] >= levelRank[AccountabilityAlertLevel.A1])) {
     status = AccountabilityStatus.VARIANCE_REVIEW_REQUIRED;
   }
@@ -254,9 +228,7 @@ export async function recomputeAccountabilityState(licencePlate: string) {
     status = AccountabilityStatus.ESCALATED;
   } else if (quarterly.status === QuarterlyReviewStatus.PENDING && !quarterly.poSignedOff) {
     const now = new Date();
-    const quarterStartMonth = (quarterly.quarter - 1) * 3 + 1;
-    const mPlusOne = new Date(quarterly.fiscalYear, quarterStartMonth, 1);
-    if (now > mPlusOne) {
+    if (now > getMPlusOneDate(quarterly.fiscalYear, quarterly.quarter)) {
       status = AccountabilityStatus.FORECAST_REVIEW_REQUIRED;
     }
   }
@@ -282,14 +254,11 @@ export async function recomputeAccountabilityState(licencePlate: string) {
 }
 
 export async function getOrCreateCurrentQuarterlyReview(licencePlate: string) {
-  const { fiscalYear, quarter } = getCurrentFiscalQuarter();
-  const existing = await prisma.quarterlyForecastReview.findFirst({
-    where: { licencePlate, fiscalYear, quarter },
-  });
-  if (existing) return existing;
-
-  return prisma.quarterlyForecastReview.create({
-    data: { licencePlate, fiscalYear, quarter },
+  const { fiscalYear, quarter } = getCurrentQuarter();
+  return prisma.quarterlyForecastReview.upsert({
+    where: { licencePlate_fiscalYear_quarter: { licencePlate, fiscalYear, quarter } },
+    create: { licencePlate, fiscalYear, quarter },
+    update: {},
   });
 }
 
@@ -448,12 +417,30 @@ export async function buildBundledAccountabilityExportRows(provider?: Provider):
   return rows;
 }
 
+/** Load a forecast, ensuring it belongs to the product the caller was authorized for. */
+async function getForecastForProduct(licencePlate: string, forecastId: string) {
+  const forecast = await prisma.cloudCostForecast.findUnique({ where: { id: forecastId } });
+  if (!forecast || forecast.licencePlate !== licencePlate) {
+    throw new Error('Forecast not found for this product');
+  }
+  return forecast;
+}
+
 export async function createForecastDraft(
   licencePlate: string,
   monthlyValues: { year: number; month: number; amount: number; currency: string }[],
   horizonMonths: number,
-  userId: string,
 ) {
+  const openForecast = await prisma.cloudCostForecast.findFirst({
+    where: {
+      licencePlate,
+      status: { in: [CloudCostForecastStatus.DRAFT, CloudCostForecastStatus.PENDING_APPROVAL] },
+    },
+  });
+  if (openForecast) {
+    throw new Error('A draft or pending forecast already exists for this product');
+  }
+
   const latest = await prisma.cloudCostForecast.findFirst({
     where: { licencePlate },
     orderBy: { version: 'desc' },
@@ -477,13 +464,14 @@ export async function createForecastDraft(
 }
 
 export async function updateForecastDraft(
+  licencePlate: string,
   forecastId: string,
   monthlyValues: { year: number; month: number; amount: number; currency: string }[],
   horizonMonths: number,
   changeMeta?: { changeJustification?: string; changeNature?: string },
 ) {
-  const forecast = await prisma.cloudCostForecast.findUnique({ where: { id: forecastId } });
-  if (!forecast || forecast.status !== CloudCostForecastStatus.DRAFT) {
+  const forecast = await getForecastForProduct(licencePlate, forecastId);
+  if (forecast.status !== CloudCostForecastStatus.DRAFT) {
     throw new Error('Only draft forecasts can be updated');
   }
 
@@ -512,9 +500,9 @@ export async function updateForecastDraft(
   });
 }
 
-export async function submitForecast(forecastId: string, userId: string) {
-  const forecast = await prisma.cloudCostForecast.findUnique({ where: { id: forecastId } });
-  if (!forecast || forecast.status !== CloudCostForecastStatus.DRAFT) {
+export async function submitForecast(licencePlate: string, forecastId: string, userId: string) {
+  const forecast = await getForecastForProduct(licencePlate, forecastId);
+  if (forecast.status !== CloudCostForecastStatus.DRAFT) {
     throw new Error('Only draft forecasts can be submitted');
   }
 
@@ -528,9 +516,9 @@ export async function submitForecast(forecastId: string, userId: string) {
   });
 }
 
-export async function approveForecast(forecastId: string, userId: string) {
-  const forecast = await prisma.cloudCostForecast.findUnique({ where: { id: forecastId } });
-  if (!forecast || forecast.status !== CloudCostForecastStatus.PENDING_APPROVAL) {
+export async function approveForecast(licencePlate: string, forecastId: string, userId: string) {
+  const forecast = await getForecastForProduct(licencePlate, forecastId);
+  if (forecast.status !== CloudCostForecastStatus.PENDING_APPROVAL) {
     throw new Error('Only pending forecasts can be approved');
   }
 
@@ -555,9 +543,14 @@ export async function approveForecast(forecastId: string, userId: string) {
   return approved;
 }
 
-export async function rejectForecast(forecastId: string, userId: string, rejectionReason: string) {
-  const forecast = await prisma.cloudCostForecast.findUnique({ where: { id: forecastId } });
-  if (!forecast || forecast.status !== CloudCostForecastStatus.PENDING_APPROVAL) {
+export async function rejectForecast(
+  licencePlate: string,
+  forecastId: string,
+  userId: string,
+  rejectionReason: string,
+) {
+  const forecast = await getForecastForProduct(licencePlate, forecastId);
+  if (forecast.status !== CloudCostForecastStatus.PENDING_APPROVAL) {
     throw new Error('Only pending forecasts can be rejected');
   }
 
@@ -575,21 +568,48 @@ export async function rejectForecast(forecastId: string, userId: string, rejecti
   return rejected;
 }
 
-export async function acknowledgeAlert(alertId: string, userId: string, explanation?: string) {
+const VARIANCE_ALERT_LEVELS: AccountabilityAlertLevel[] = [
+  AccountabilityAlertLevel.A1,
+  AccountabilityAlertLevel.A2,
+  AccountabilityAlertLevel.A3,
+];
+
+/** Load an alert, ensuring it belongs to the product the caller was authorized for. */
+async function getAlertForProduct(licencePlate: string, alertId: string) {
+  const alert = await prisma.accountabilityAlert.findUnique({ where: { id: alertId } });
+  if (!alert || alert.licencePlate !== licencePlate) {
+    throw new Error('Alert not found for this product');
+  }
+  return alert;
+}
+
+export async function acknowledgeAlert(licencePlate: string, alertId: string, userId: string, explanation?: string) {
+  const alert = await getAlertForProduct(licencePlate, alertId);
+  if (VARIANCE_ALERT_LEVELS.includes(alert.level) && !explanation?.trim()) {
+    throw new Error('Explanation is required for variance alerts');
+  }
+
   return prisma.accountabilityAlert.update({
-    where: { id: alertId },
+    where: { id: alert.id },
     data: {
       status: AccountabilityAlertStatus.ACKNOWLEDGED,
       acknowledgedAt: new Date(),
       acknowledgedById: userId,
-      explanation: explanation ?? undefined,
+      explanation: explanation?.trim() || undefined,
     },
   });
 }
 
-export async function resolveAlert(alertId: string, userId: string, resolutionReason: string, explanation?: string) {
+export async function resolveAlert(
+  licencePlate: string,
+  alertId: string,
+  userId: string,
+  resolutionReason: string,
+  explanation?: string,
+) {
+  const existing = await getAlertForProduct(licencePlate, alertId);
   const alert = await prisma.accountabilityAlert.update({
-    where: { id: alertId },
+    where: { id: existing.id },
     data: {
       status: AccountabilityAlertStatus.RESOLVED,
       resolvedAt: new Date(),
@@ -636,7 +656,6 @@ export async function signOffQuarterlyReview(licencePlate: string, userId: strin
 }
 
 export function seedForecastFromProductBudget(
-  licencePlate: string,
   provider: Provider,
   budget: { dev: number; test: number; prod: number; tools: number },
   environmentsEnabled: {
@@ -731,24 +750,18 @@ export async function searchPublicCloudAccountability({
   });
 
   const licencePlates = products.map((p) => p.licencePlate);
+  const { year: periodYear, month: periodMonth } = getCurrentBillingPeriod();
+  const { fiscalYear, quarter } = getCurrentQuarter();
 
   const [states, snapshots, quarterlyReviews] = await Promise.all([
     prisma.cloudCostAccountabilityState.findMany({
       where: { licencePlate: { in: licencePlates } },
     }),
     prisma.cloudSpendSnapshot.findMany({
-      where: {
-        licencePlate: { in: licencePlates },
-        periodYear: getCurrentBillingPeriod().year,
-        periodMonth: getCurrentBillingPeriod().month,
-      },
+      where: { licencePlate: { in: licencePlates }, periodYear, periodMonth },
     }),
     prisma.quarterlyForecastReview.findMany({
-      where: {
-        licencePlate: { in: licencePlates },
-        fiscalYear: getCurrentFiscalQuarter().fiscalYear,
-        quarter: getCurrentFiscalQuarter().quarter,
-      },
+      where: { licencePlate: { in: licencePlates }, fiscalYear, quarter },
     }),
   ]);
 

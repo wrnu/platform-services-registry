@@ -871,6 +871,9 @@ model CloudCostForecast {
   sourceBudgetSnapshot Json?
   createdAt            DateTime                @default(now())
   updatedAt            DateTime                @updatedAt
+
+  @@unique([licencePlate, version])
+  @@index([licencePlate, status])
 }
 
 model CloudSpendSnapshot {
@@ -891,6 +894,8 @@ model CloudSpendSnapshot {
   asOfDate           DateTime
   accounts           SpendAccountBreakdown[]
   createdAt          DateTime                @default(now())
+
+  @@unique([licencePlate, periodYear, periodMonth])
 }
 
 model AccountabilityAlert {
@@ -919,6 +924,8 @@ model AccountabilityAlert {
   resolutionReason   String?
   createdAt          DateTime                  @default(now())
   updatedAt          DateTime                  @updatedAt
+
+  @@index([licencePlate, status])
 }
 
 model QuarterlyForecastReview {
@@ -938,6 +945,8 @@ model QuarterlyForecastReview {
   status                 QuarterlyReviewStatus @default(PENDING)
   createdAt              DateTime              @default(now())
   updatedAt              DateTime              @updatedAt
+
+  @@unique([licencePlate, fiscalYear, quarter])
 }
 
 model CloudSpendHistory {
@@ -946,6 +955,8 @@ model CloudSpendHistory {
   provider     Provider
   months       ClosedMonthSpend[]
   updatedAt    DateTime           @updatedAt
+
+  @@unique([licencePlate, provider])
 }
 
 model CloudCostAccountabilityState {
@@ -971,6 +982,8 @@ model AccountabilityNotificationLog {
   status       String
   metadata     Json?
   sentAt       DateTime @default(now())
+
+  @@index([licencePlate, templateKey, scenario])
 }
 
 model CloudCostRulesConfig {

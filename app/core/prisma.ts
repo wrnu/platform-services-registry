@@ -7,8 +7,6 @@ import { PrismaClient } from '@/prisma/client';
 // Learn more:
 // https://pris.ly/d/help/next-js-best-practices
 
-const globalForPrisma = global as unknown as { prisma: PrismaClient };
-
 const log: ('info' | 'query' | 'warn' | 'error')[] = LOG_DATABASE ? ['query', 'info', 'warn', 'error'] : [];
 
 function createPrismaClient() {
@@ -16,6 +14,10 @@ function createPrismaClient() {
     query: {},
   });
 }
+
+type ExtendedPrismaClient = ReturnType<typeof createPrismaClient>;
+
+const globalForPrisma = global as unknown as { prisma: ExtendedPrismaClient };
 
 let prisma = globalForPrisma.prisma ?? createPrismaClient();
 

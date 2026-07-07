@@ -13,14 +13,7 @@
     },
     "ignoreDeprecations": "6.0"
   },
-  "include": [
-    "seed-local-dev.ts",
-    "seed-all-local.ts",
-    "seed-accountability-local.ts",
-    "approve-local-emou.ts",
-    "approve-local-request.ts",
-    "seed/**/*.ts"
-  ],
+  "include": ["seed/**/*.ts"],
   "ts-node": {
     "transpileOnly": true,
     "require": ["tsconfig-paths/register"]

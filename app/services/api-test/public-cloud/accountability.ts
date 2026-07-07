@@ -221,13 +221,13 @@ export function buildCspAlertPayload(licencePlate: string, provider: string, ale
 
 export function buildCspHistoryPayload(licencePlate: string, provider: string, currency = 'USD') {
   const now = new Date();
-  const month = now.getMonth();
+  const previousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   return {
     licencePlate,
     provider,
     months: [
       {
-        billingPeriod: { year: now.getFullYear(), month: month === 0 ? 12 : month },
+        billingPeriod: { year: previousMonth.getFullYear(), month: previousMonth.getMonth() + 1 },
         currency,
         actualTotal: 4800,
         forecastTotal: 5000,

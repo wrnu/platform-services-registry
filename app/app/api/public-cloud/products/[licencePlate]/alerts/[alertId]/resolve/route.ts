@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { GlobalRole } from '@/constants';
 import createApiHandler from '@/core/api-handler';
-import { OkResponse, UnauthorizedResponse } from '@/core/responses';
+import { BadRequestResponse, OkResponse, UnauthorizedResponse } from '@/core/responses';
 import { models } from '@/services/db';
 import { resolveAlert } from '@/services/db/public-cloud-accountability';
 import { objectId } from '@/validation-schemas';
@@ -22,6 +22,10 @@ export const POST = createApiHandler({
     return UnauthorizedResponse();
   }
 
-  const alert = await resolveAlert(alertId, session.user.id, body.resolutionReason, body.explanation);
-  return OkResponse(alert);
+  try {
+    const alert = await resolveAlert(licencePlate, alertId, session.user.id, body.resolutionReason, body.explanation);
+    return OkResponse(alert);
+  } catch (e) {
+    return BadRequestResponse((e as Error).message);
+  }
 });

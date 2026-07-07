@@ -1,9 +1,7 @@
 import { z } from 'zod';
 import { GlobalRole } from '@/constants';
 import createApiHandler from '@/core/api-handler';
-import prisma from '@/core/prisma';
 import { BadRequestResponse, OkResponse, UnauthorizedResponse } from '@/core/responses';
-import { AccountabilityAlertLevel } from '@/prisma/client';
 import { models } from '@/services/db';
 import { acknowledgeAlert } from '@/services/db/public-cloud-accountability';
 import { objectId } from '@/validation-schemas';
@@ -24,20 +22,10 @@ export const POST = createApiHandler({
     return UnauthorizedResponse();
   }
 
-  const existingAlert = await prisma.accountabilityAlert.findUnique({ where: { id: alertId } });
-  if (!existingAlert || existingAlert.licencePlate !== licencePlate) {
-    return BadRequestResponse('Alert not found');
+  try {
+    const alert = await acknowledgeAlert(licencePlate, alertId, session.user.id, body.explanation);
+    return OkResponse(alert);
+  } catch (e) {
+    return BadRequestResponse((e as Error).message);
   }
-
-  const varianceLevels: AccountabilityAlertLevel[] = [
-    AccountabilityAlertLevel.A1,
-    AccountabilityAlertLevel.A2,
-    AccountabilityAlertLevel.A3,
-  ];
-  if (varianceLevels.includes(existingAlert.level) && !body.explanation?.trim()) {
-    return BadRequestResponse('Explanation is required for variance alerts');
-  }
-
-  const alert = await acknowledgeAlert(alertId, session.user.id, body.explanation?.trim());
-  return OkResponse(alert);
 });

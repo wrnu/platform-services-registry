@@ -43,25 +43,16 @@ export const POST = createApiHandler({
     return UnauthorizedResponse();
   }
 
-  let monthlyValues = body?.monthlyValues;
+  let monthlyValues: { year: number; month: number; amount: number; currency: string }[] | undefined =
+    body?.monthlyValues;
   const horizonMonths = body?.horizonMonths ?? 24;
 
   if (!monthlyValues?.length) {
-    monthlyValues = seedForecastFromProductBudget(
-      licencePlate,
-      product.provider,
-      product.budget,
-      product.environmentsEnabled,
-    );
+    monthlyValues = seedForecastFromProductBudget(product.provider, product.budget, product.environmentsEnabled);
   }
 
   try {
-    const forecast = await createForecastDraft(
-      licencePlate,
-      monthlyValues as { year: number; month: number; amount: number; currency: string }[],
-      horizonMonths,
-      session.user.id,
-    );
+    const forecast = await createForecastDraft(licencePlate, monthlyValues, horizonMonths);
     return OkResponse(forecast);
   } catch (e) {
     return BadRequestResponse((e as Error).message);

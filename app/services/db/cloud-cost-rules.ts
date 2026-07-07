@@ -2,25 +2,72 @@ import {
   CloudCostRulesConfigData,
   DEFAULT_CLOUD_COST_RULES,
   DEFAULT_NOTIFICATION_ROUTING,
-  previewRuleEvaluation,
-  RulePreviewInput,
 } from '@/constants/cloud-cost-rules';
 import prisma from '@/core/prisma';
-import { ProjectionMethod } from '@/prisma/client';
+import { CloudCostRulesConfig, ProjectionMethod } from '@/prisma/client';
 import type { CloudCostRulesConfigBody } from '@/validation-schemas';
+
+function toVarianceTier(tier: { percentAbove?: number; dollarsAbove?: number; minDollarsAbove?: number }) {
+  return {
+    percentAbove: tier.percentAbove ?? null,
+    dollarsAbove: tier.dollarsAbove ?? null,
+    minDollarsAbove: tier.minDollarsAbove ?? null,
+  };
+}
 
 export function toCloudCostRulesConfigData(body: CloudCostRulesConfigBody): CloudCostRulesConfigData {
   return {
-    varianceThresholds: body.varianceThresholds as CloudCostRulesConfigData['varianceThresholds'],
+    varianceThresholds: {
+      a1: toVarianceTier(body.varianceThresholds.a1),
+      a2: toVarianceTier(body.varianceThresholds.a2),
+      a3: toVarianceTier(body.varianceThresholds.a3),
+    },
     consumptionMilestones: body.consumptionMilestones,
-    earlyPaceWarning: body.earlyPaceWarning,
+    earlyPaceWarning: {
+      percentOfForecast: body.earlyPaceWarning.percentOfForecast,
+      byDayOfMonth: body.earlyPaceWarning.byDayOfMonth,
+      preemptivePercentOfForecast: body.earlyPaceWarning.preemptivePercentOfForecast ?? null,
+      preemptiveByDayOfMonth: body.earlyPaceWarning.preemptiveByDayOfMonth ?? null,
+    },
     forecastPolicy: body.forecastPolicy,
     quarterlyReview: body.quarterlyReview,
     reminderPolicy: body.reminderPolicy,
     monthlyRecapDayOfMonth: body.monthlyRecapDayOfMonth,
-    projectionMethod: (body.projectionMethod ?? ProjectionMethod.LINEAR_EXTRAPOLATION) as ProjectionMethod,
+    projectionMethod: body.projectionMethod ?? ProjectionMethod.LINEAR_EXTRAPOLATION,
     notificationRouting: body.notificationRouting ?? DEFAULT_NOTIFICATION_ROUTING,
   };
+}
+
+export function rulesConfigModelToData(config: CloudCostRulesConfig): CloudCostRulesConfigData {
+  return {
+    varianceThresholds: config.varianceThresholds,
+    consumptionMilestones: config.consumptionMilestones,
+    earlyPaceWarning: config.earlyPaceWarning,
+    forecastPolicy: config.forecastPolicy,
+    quarterlyReview: config.quarterlyReview,
+    reminderPolicy: config.reminderPolicy,
+    monthlyRecapDayOfMonth: config.monthlyRecapDayOfMonth,
+    projectionMethod: config.projectionMethod,
+    notificationRouting: config.notificationRouting ?? DEFAULT_NOTIFICATION_ROUTING,
+  };
+}
+
+/** Deactivate the current active config and create the next version as active. */
+async function activateNewConfigVersion(data: CloudCostRulesConfigData, createdById?: string) {
+  const latest = await prisma.cloudCostRulesConfig.findFirst({ orderBy: { version: 'desc' } });
+  const version = latest ? latest.version + 1 : 1;
+
+  await prisma.cloudCostRulesConfig.updateMany({ where: { isActive: true }, data: { isActive: false } });
+
+  return prisma.cloudCostRulesConfig.create({
+    data: {
+      version,
+      isActive: true,
+      effectiveAt: new Date(),
+      ...data,
+      createdById,
+    },
+  });
 }
 
 export async function getActiveCloudCostRulesConfig() {
@@ -35,19 +82,7 @@ export async function getActiveCloudCostRulesConfig() {
 }
 
 export async function seedDefaultCloudCostRulesConfig() {
-  const latest = await prisma.cloudCostRulesConfig.findFirst({ orderBy: { version: 'desc' } });
-  const version = latest ? latest.version + 1 : 1;
-
-  await prisma.cloudCostRulesConfig.updateMany({ where: { isActive: true }, data: { isActive: false } });
-
-  return prisma.cloudCostRulesConfig.create({
-    data: {
-      version,
-      isActive: true,
-      effectiveAt: new Date(),
-      ...DEFAULT_CLOUD_COST_RULES,
-    },
-  });
+  return activateNewConfigVersion(toCloudCostRulesConfigData(DEFAULT_CLOUD_COST_RULES));
 }
 
 export async function listCloudCostRulesConfigs() {
@@ -55,31 +90,5 @@ export async function listCloudCostRulesConfigs() {
 }
 
 export async function createCloudCostRulesConfig(body: CloudCostRulesConfigBody, userId: string) {
-  const normalized = toCloudCostRulesConfigData(body);
-  const latest = await prisma.cloudCostRulesConfig.findFirst({ orderBy: { version: 'desc' } });
-  const version = latest ? latest.version + 1 : 1;
-
-  await prisma.cloudCostRulesConfig.updateMany({ where: { isActive: true }, data: { isActive: false } });
-
-  return prisma.cloudCostRulesConfig.create({
-    data: {
-      version,
-      isActive: true,
-      effectiveAt: new Date(),
-      varianceThresholds: normalized.varianceThresholds,
-      consumptionMilestones: normalized.consumptionMilestones,
-      earlyPaceWarning: normalized.earlyPaceWarning,
-      forecastPolicy: normalized.forecastPolicy,
-      quarterlyReview: normalized.quarterlyReview,
-      reminderPolicy: normalized.reminderPolicy,
-      monthlyRecapDayOfMonth: normalized.monthlyRecapDayOfMonth,
-      projectionMethod: normalized.projectionMethod,
-      notificationRouting: normalized.notificationRouting,
-      createdById: userId,
-    },
-  });
-}
-
-export function previewCloudCostRules(input: RulePreviewInput, rules: CloudCostRulesConfigData) {
-  return previewRuleEvaluation(input, rules);
+  return activateNewConfigVersion(toCloudCostRulesConfigData(body), userId);
 }

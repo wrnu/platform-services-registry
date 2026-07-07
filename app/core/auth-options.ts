@@ -319,8 +319,7 @@ export async function generateSession({
       session.isPublicReviewer ||
       session.isBillingReviewer ||
       session.isBillingManager ||
-      session.isBillingReader ||
-      session.isUser,
+      session.isBillingReader,
 
     managePublicCloudCostRules:
       session.isAdmin || session.isPublicAdmin || session.isBillingReviewer || session.isBillingManager,

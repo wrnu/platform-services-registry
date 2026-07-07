@@ -17,7 +17,7 @@ import TableBody from './TableBody';
 
 const accountabilityPage = createClientPage({
   permissions: [GlobalPermissions.ViewPublicCloudAccountability],
-  fallbackUrl: 'login?callbackUrl=/home',
+  fallbackUrl: '/login?callbackUrl=/home',
 });
 
 export default accountabilityPage(() => {

@@ -2,8 +2,8 @@
  * Seed MongoDB for local development: ministries (organizations) and mock users.
  * Run: pnpm run seed-local (from app/, after sandbox + prisma db push)
  */
-import prisma from './core/prisma';
-import { seedFoundation } from './seed/seed-foundation';
+import prisma from '../core/prisma';
+import { seedFoundation } from './seed-foundation';
 
 async function main() {
   await seedFoundation();

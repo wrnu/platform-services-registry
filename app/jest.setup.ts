@@ -27,8 +27,9 @@ jest.mock('@/services/nats/core', () => ({
 }));
 
 jest.mock('@/services/ches/core', () => ({
-  sendEmail: jest.fn(),
-  safeSendEmail: jest.fn(),
+  // Resolve a CHES-like success payload so callers that inspect the result treat the send as successful.
+  sendEmail: jest.fn(async () => ({ txId: 'test-tx', messages: [] })),
+  safeSendEmail: jest.fn(async () => ({ txId: 'test-tx', messages: [] })),
 }));
 
 jest.mock('@/utils/node', () => ({

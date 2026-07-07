@@ -7,9 +7,11 @@
 import {
   buildFiscalForecastMonths,
   FISCAL_FORECAST_HORIZON_MONTHS,
-} from './components/public-cloud/accountability/forecast-grid-utils';
-import { Provider } from './prisma/client';
-import { seedDefaultCloudCostRulesConfig } from './services/db/cloud-cost-rules';
+} from '../components/public-cloud/accountability/forecast-grid-utils';
+import prisma from '../core/prisma';
+import { getCurrentBillingPeriod } from '../helpers/accountability-periods';
+import { Provider } from '../prisma/client';
+import { seedDefaultCloudCostRulesConfig } from '../services/db/cloud-cost-rules';
 import {
   approveForecast,
   createForecastDraft,
@@ -20,7 +22,7 @@ import {
   submitForecast,
   upsertConsumptionHistory,
   upsertConsumptionSnapshot,
-} from './services/db/public-cloud-accountability';
+} from '../services/db/public-cloud-accountability';
 
 const DEFAULT_PLATE = 'e71b0e';
 const ADMIN_EMAIL = 'admin.system@gov.bc.ca';
@@ -36,11 +38,6 @@ function parseArgs() {
     reset: flags.has('--reset'),
     skipForecast: flags.has('--skip-forecast'),
   };
-}
-
-function getCurrentBillingPeriod() {
-  const now = new Date();
-  return { year: now.getFullYear(), month: now.getMonth() + 1 };
 }
 
 function billingPeriodMonthsBack(count: number) {
@@ -84,11 +81,11 @@ async function ensureApprovedForecast(
 
   const monthlyValues =
     monthlyForecastTotal(product) > 0
-      ? seedForecastFromProductBudget(licencePlate, product.provider, product.budget, product.environmentsEnabled)
+      ? seedForecastFromProductBudget(product.provider, product.budget, product.environmentsEnabled)
       : buildMonthlyValues(product, resolveMonthlyForecastAmount(product));
-  const draft = await createForecastDraft(licencePlate, monthlyValues, FISCAL_FORECAST_HORIZON_MONTHS, userId);
-  await submitForecast(draft.id, userId);
-  const approved = await approveForecast(draft.id, userId);
+  const draft = await createForecastDraft(licencePlate, monthlyValues, FISCAL_FORECAST_HORIZON_MONTHS);
+  await submitForecast(licencePlate, draft.id, userId);
+  const approved = await approveForecast(licencePlate, draft.id, userId);
   console.log(`  created and approved forecast v${approved.version}`);
   return approved;
 }
@@ -195,7 +192,7 @@ export async function seedAccountabilityForProduct(
   }
 
   const forecastAmount = resolveMonthlyForecastAmount(product);
-  const currency = product.provider === Provider.AZURE ? 'CAD' : 'USD';
+  const currency: 'USD' | 'CAD' = product.provider === Provider.AZURE ? 'CAD' : 'USD';
 
   if (!skipForecast) {
     console.log('Forecast:');

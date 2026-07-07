@@ -10,7 +10,7 @@ import TableBody from '../all/TableBody';
 
 const compliancePage = createClientPage({
   permissions: [GlobalPermissions.ViewPublicCloudAccountability],
-  fallbackUrl: 'login?callbackUrl=/home',
+  fallbackUrl: '/login?callbackUrl=/home',
 });
 
 export default compliancePage(() => {

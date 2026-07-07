@@ -167,7 +167,10 @@ describe('getForecastIncreases', () => {
 
   it('returns future-month increases over baseline', () => {
     const baseline = buildFiscalForecastMonths(2, 1000, 'CAD', june2026);
-    const proposed = baseline.map((v) => ({ ...v, amount: v.amount + (v.month === 7 ? 500 : 0) }));
+    const proposed = baseline.map((v) => ({
+      ...v,
+      amount: v.amount + (v.year === 2026 && v.month === 7 ? 500 : 0),
+    }));
 
     const increases = getForecastIncreases(proposed, baseline, june2026);
 

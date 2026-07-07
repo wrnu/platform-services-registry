@@ -189,13 +189,13 @@ export const cloudCostRulesConfigBodySchema = z.object({
   projectionMethod: z.nativeEnum(ProjectionMethod).optional(),
   notificationRouting: z
     .object({
-      a1AdminEmails: z.array(z.string()).default([]),
-      a2AdminEmails: z.array(z.string()).default([]),
-      a3AdminEmails: z.array(z.string()).default([]),
-      escalationEmails: z.array(z.string()).default([]),
-      monthlyRecapEmails: z.array(z.string()).default([]),
-      nonComplianceEmails: z.array(z.string()).default([]),
-      escalationListEmails: z.array(z.string()).default([]),
+      a1AdminEmails: z.array(z.string()),
+      a2AdminEmails: z.array(z.string()),
+      a3AdminEmails: z.array(z.string()),
+      escalationEmails: z.array(z.string()),
+      monthlyRecapEmails: z.array(z.string()),
+      nonComplianceEmails: z.array(z.string()),
+      escalationListEmails: z.array(z.string()),
     })
     .optional(),
 });

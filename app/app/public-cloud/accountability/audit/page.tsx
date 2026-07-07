@@ -11,7 +11,7 @@ import { searchAccountabilityNotifications } from '@/services/backend/public-clo
 
 const auditPage = createClientPage({
   permissions: [GlobalPermissions.ViewPublicCloudAccountability],
-  fallbackUrl: 'login?callbackUrl=/home',
+  fallbackUrl: '/login?callbackUrl=/home',
 });
 
 export default auditPage(() => {

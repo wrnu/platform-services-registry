@@ -16,7 +16,7 @@ localmac:
 
 .PHONY: tunnel tunnel-stop tunnel-status
 tunnel:
-	TUNNEL_DETACHED=$(DETACHED) ./sandbox/cloudflared-tunnel.sh start
+	TUNNEL_DETACHED=$(if $(filter true 1 yes,$(SBD)),true,false) ./sandbox/cloudflared-tunnel.sh start
 
 tunnel-stop:
 	./sandbox/cloudflared-tunnel.sh stop

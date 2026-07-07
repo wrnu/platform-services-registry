@@ -21,6 +21,7 @@ import PreemptiveThresholdNoticeTemplate from '@/emails/_templates/public-cloud/
 import QuarterlyEscalationTemplate from '@/emails/_templates/public-cloud/QuarterlyEscalation';
 import QuarterlyForecastReminderTemplate from '@/emails/_templates/public-cloud/QuarterlyForecastReminder';
 import QuarterlySignOffReminderTemplate from '@/emails/_templates/public-cloud/QuarterlySignOffReminder';
+import { getDaysUntilMPlusOne } from '@/helpers/accountability-periods';
 import {
   AccountabilityAlertLevel,
   AccountabilityStatus,
@@ -158,16 +159,6 @@ async function getAdminAlertEmails(level: AccountabilityAlertLevel) {
     default:
       throw new Error(`No admin template for alert level: ${level}`);
   }
-}
-
-export function getMPlusOneDate(fiscalYear: number, quarter: number) {
-  const quarterStartMonth = (quarter - 1) * 3 + 1;
-  return new Date(fiscalYear, quarterStartMonth, 1);
-}
-
-export function getDaysUntilMPlusOne(fiscalYear: number, quarter: number, from = new Date()) {
-  const mPlusOne = getMPlusOneDate(fiscalYear, quarter);
-  return Math.ceil((mPlusOne.getTime() - from.getTime()) / (1000 * 60 * 60 * 24));
 }
 
 async function getDirectorEscalationEmails() {
@@ -542,7 +533,6 @@ function teamAlertSubject(productName: string, alert: CspConsumptionAlert) {
 
 export async function sendConsumptionAlertEmails(alert: CspConsumptionAlert) {
   const { emails, name } = await getProductTeamEmails(alert.licencePlate);
-  const teamContent = await buildTeamAlertContent(name, alert);
   const teamTemplateKey =
     alert.alertType === 'MILESTONE'
       ? 'CONSUMPTION_MILESTONE'
@@ -550,7 +540,23 @@ export async function sendConsumptionAlertEmails(alert: CspConsumptionAlert) {
         ? 'CONSUMPTION_PACE_WARNING'
         : `COST_ALERT_${alert.alertType}`;
 
-  if (emails.length) {
+  // CSP ingestion can repost the same alert while it stays open; only email once per
+  // billing period (per milestone tier for milestone alerts).
+  const baseScenario = billingPeriodScenario(alert.billingPeriod.year, alert.billingPeriod.month);
+  const scenario =
+    alert.alertType === 'MILESTONE' && alert.milestonePercent != null
+      ? `${baseScenario}:m${alert.milestonePercent}`
+      : baseScenario;
+  const metadata = {
+    alertType: alert.alertType,
+    periodYear: alert.billingPeriod.year,
+    periodMonth: alert.billingPeriod.month,
+  };
+
+  const teamAlreadySent = await hasAccountabilityNotificationForScenario(alert.licencePlate, teamTemplateKey, scenario);
+
+  if (emails.length && !teamAlreadySent) {
+    const teamContent = await buildTeamAlertContent(name, alert);
     await sendAccountabilityEmail(
       {
         subject: teamAlertSubject(name, alert),
@@ -560,12 +566,8 @@ export async function sendConsumptionAlertEmails(alert: CspConsumptionAlert) {
       {
         licencePlate: alert.licencePlate,
         templateKey: teamTemplateKey,
-        scenario: billingPeriodScenario(alert.billingPeriod.year, alert.billingPeriod.month),
-        metadata: {
-          alertType: alert.alertType,
-          periodYear: alert.billingPeriod.year,
-          periodMonth: alert.billingPeriod.month,
-        },
+        scenario,
+        metadata,
       },
     );
   }
@@ -578,7 +580,14 @@ export async function sendConsumptionAlertEmails(alert: CspConsumptionAlert) {
 
   if (varianceLevels.includes(alert.alertType as AccountabilityAlertLevel)) {
     const level = alert.alertType as AccountabilityAlertLevel;
-    const adminEmails = await getAdminAlertEmails(level);
+    const adminTemplateKey = `COST_ALERT_${level}_ADMIN`;
+    const adminAlreadySent = await hasAccountabilityNotificationForScenario(
+      alert.licencePlate,
+      adminTemplateKey,
+      scenario,
+    );
+
+    const adminEmails = adminAlreadySent ? [] : await getAdminAlertEmails(level);
     if (adminEmails.length) {
       const adminContent = await buildAdminAlertContent(name, alert, level);
       await sendAccountabilityEmail(
@@ -590,13 +599,9 @@ export async function sendConsumptionAlertEmails(alert: CspConsumptionAlert) {
         },
         {
           licencePlate: alert.licencePlate,
-          templateKey: `COST_ALERT_${level}_ADMIN`,
-          scenario: billingPeriodScenario(alert.billingPeriod.year, alert.billingPeriod.month),
-          metadata: {
-            alertType: alert.alertType,
-            periodYear: alert.billingPeriod.year,
-            periodMonth: alert.billingPeriod.month,
-          },
+          templateKey: adminTemplateKey,
+          scenario,
+          metadata,
         },
       );
     }

@@ -194,7 +194,15 @@ describe('Public Cloud accountability APIs', () => {
       });
       expect(updateRes.status).toBe(200);
       const updated = await updateRes.json();
-      expect(updated.monthlyValues[0].amount).toBe(6000);
+
+      // Past months are locked server-side and keep their original amounts;
+      // current/future months accept the update.
+      const now = new Date();
+      const currentKey = now.getFullYear() * 100 + (now.getMonth() + 1);
+      for (const value of updated.monthlyValues) {
+        const key = value.year * 100 + value.month;
+        expect(value.amount).toBe(key < currentKey ? 5000 : 6000);
+      }
 
       const submitRes = await submitPublicCloudForecast(licencePlate, draft.id);
       expect(submitRes.status).toBe(200);

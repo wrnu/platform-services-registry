@@ -2,8 +2,8 @@
  * Approve signed eMOUs locally (skips billing reviewer UI).
  * Run: pnpm run approve-local-emou
  */
-import prisma from './core/prisma';
-import { RequestType, TaskStatus, TaskType } from './prisma/client';
+import prisma from '../core/prisma';
+import { RequestType, TaskStatus, TaskType } from '../prisma/client';
 
 async function main() {
   const reviewer =

@@ -2,10 +2,10 @@
  * Full local dev seed: ministries, users, cost rules, Azure product, accountability demo data.
  * Run: pnpm run seed-all-local [--reset]
  */
-import prisma from './core/prisma';
-import { AZURE_DEMO_PLATE, seedAzurePublicCloudProduct } from './seed/seed-azure-product';
-import { seedFoundation } from './seed/seed-foundation';
+import prisma from '../core/prisma';
 import { seedAccountabilityForProduct } from './seed-accountability-local';
+import { AZURE_DEMO_PLATE, seedAzurePublicCloudProduct } from './seed-azure-product';
+import { seedFoundation } from './seed-foundation';
 
 async function main() {
   const reset = process.argv.includes('--reset');

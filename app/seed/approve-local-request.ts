@@ -2,28 +2,17 @@
  * Approve pending public cloud CREATE requests and provision products locally.
  * Run: pnpm run approve-local-request
  */
-import prisma from './core/prisma';
-import { DecisionStatus, ProjectStatus, RequestType, TaskStatus, TaskType } from './prisma/client';
+import prisma from '../core/prisma';
+import {
+  DecisionStatus,
+  ProjectStatus,
+  PublicCloudRequestData,
+  RequestType,
+  TaskStatus,
+  TaskType,
+} from '../prisma/client';
 
-function productFieldsFromDecisionData(data: {
-  licencePlate: string;
-  name: string;
-  description: string;
-  status: ProjectStatus;
-  budget: unknown;
-  projectOwnerId: string;
-  primaryTechnicalLeadId: string;
-  secondaryTechnicalLeadId: string | null;
-  expenseAuthorityId: string;
-  organizationId: string;
-  provider: string;
-  requiresNetworking: boolean;
-  networkingReason: string;
-  providerSelectionReasons: string[];
-  providerSelectionReasonsNote: string;
-  environmentsEnabled: unknown;
-  members: unknown;
-}) {
+function productFieldsFromDecisionData(data: PublicCloudRequestData) {
   return {
     licencePlate: data.licencePlate,
     name: data.name,

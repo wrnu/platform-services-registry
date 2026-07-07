@@ -11,7 +11,7 @@ import TableBody from '../all/TableBody';
 
 const executivePage = createClientPage({
   permissions: [GlobalPermissions.ViewPublicCloudAccountability],
-  fallbackUrl: 'login?callbackUrl=/home',
+  fallbackUrl: '/login?callbackUrl=/home',
 });
 
 export default executivePage(() => {

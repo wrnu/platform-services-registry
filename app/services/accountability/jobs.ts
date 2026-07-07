@@ -1,4 +1,5 @@
 import prisma from '@/core/prisma';
+import { getCurrentQuarter, getMPlusOneDate } from '@/helpers/accountability-periods';
 import { QuarterlyReviewStatus, ProjectStatus } from '@/prisma/client';
 import {
   sendMonthlyAccountabilityRecapEmail,
@@ -7,19 +8,12 @@ import {
   sendQuarterlyEscalationEmail,
   sendQuarterlyForecastReminderEmail,
   sendWeeklySignOffReminderEmail,
-  getMPlusOneDate,
 } from '@/services/ches/public-cloud/accountability-emails';
 import { getActiveCloudCostRulesConfig } from '@/services/db/cloud-cost-rules';
 import {
   getOrCreateCurrentQuarterlyReview,
   recomputeAccountabilityState,
 } from '@/services/db/public-cloud-accountability';
-
-function getCurrentFiscalQuarter(date = new Date()) {
-  const month = date.getMonth() + 1;
-  const quarter = Math.ceil(month / 3);
-  return { fiscalYear: date.getFullYear(), quarter };
-}
 
 function isQuarterStartMonth(month: number, quarterStartMonths: number[]) {
   return quarterStartMonths.includes(month);
@@ -34,7 +28,7 @@ export async function runQuarterlyReminderJob() {
     return { sent: 0, skipped: 'not quarter start month' };
   }
 
-  const { fiscalYear, quarter } = getCurrentFiscalQuarter(now);
+  const { fiscalYear, quarter } = getCurrentQuarter(now);
   const products = await prisma.publicCloudProduct.findMany({
     where: { status: ProjectStatus.ACTIVE },
     select: { licencePlate: true },
@@ -64,7 +58,7 @@ export async function runWeeklySignOffReminderJob() {
     return { sent: 0, skipped: 'not Monday' };
   }
 
-  const { fiscalYear, quarter } = getCurrentFiscalQuarter(now);
+  const { fiscalYear, quarter } = getCurrentQuarter(now);
   const pending = await prisma.quarterlyForecastReview.findMany({
     where: {
       fiscalYear,
@@ -103,7 +97,7 @@ export async function runMPlusOneEscalationJob() {
     return { escalated: 0, skipped: 'escalation disabled' };
   }
 
-  const { fiscalYear, quarter } = getCurrentFiscalQuarter();
+  const { fiscalYear, quarter } = getCurrentQuarter();
   const mPlusOne = getMPlusOneDate(fiscalYear, quarter);
   const now = new Date();
 

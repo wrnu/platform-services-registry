@@ -1,7 +1,7 @@
 import { GlobalPermissions } from '@/constants';
 import createApiHandler from '@/core/api-handler';
 import { OkResponse } from '@/core/responses';
-import { toCloudCostRulesConfigData, createCloudCostRulesConfig } from '@/services/db/cloud-cost-rules';
+import { createCloudCostRulesConfig } from '@/services/db/cloud-cost-rules';
 import { cloudCostRulesConfigBodySchema } from '@/validation-schemas';
 
 export const POST = createApiHandler({
