@@ -168,6 +168,20 @@ export default CostRulesPage(({ session }) => {
                 </RuleGroup>
 
                 <RuleGroup
+                  title="Pre-emptive notice (A0)"
+                  description="Softer early notice before the full pace warning fires (e.g. 30% of forecast by day 5)."
+                >
+                  <HookFormTextInput
+                    name="earlyPaceWarning.preemptivePercentOfForecast"
+                    label="Pre-emptive % of forecast"
+                  />
+                  <HookFormTextInput
+                    name="earlyPaceWarning.preemptiveByDayOfMonth"
+                    label="Pre-emptive by day of month"
+                  />
+                </RuleGroup>
+
+                <RuleGroup
                   title="Monthly accountability recap"
                   description="Day of month when the bundled recap email is sent to Cloud PO, Cloud Director, and Finance Director."
                 >

@@ -296,7 +296,17 @@ export async function getOrCreateCurrentQuarterlyReview(licencePlate: string) {
 export async function getAccountabilitySummary(licencePlate: string) {
   const { year, month } = getCurrentBillingPeriod();
 
-  const [state, snapshot, activeForecast, openAlerts, quarterlyReview, spendHistory] = await Promise.all([
+  const [
+    state,
+    snapshot,
+    activeForecast,
+    openAlerts,
+    quarterlyReview,
+    spendHistory,
+    alertHistory,
+    notificationLogs,
+    escalations,
+  ] = await Promise.all([
     prisma.cloudCostAccountabilityState.findUnique({ where: { licencePlate } }),
     prisma.cloudSpendSnapshot.findFirst({
       where: { licencePlate, periodYear: year, periodMonth: month },
@@ -312,6 +322,21 @@ export async function getAccountabilitySummary(licencePlate: string) {
     }),
     getOrCreateCurrentQuarterlyReview(licencePlate),
     prisma.cloudSpendHistory.findFirst({ where: { licencePlate } }),
+    prisma.accountabilityAlert.findMany({
+      where: { licencePlate },
+      orderBy: { triggeredAt: 'desc' },
+      take: 20,
+    }),
+    prisma.accountabilityNotificationLog.findMany({
+      where: { licencePlate },
+      orderBy: { sentAt: 'desc' },
+      take: 20,
+    }),
+    prisma.quarterlyForecastReview.findMany({
+      where: { licencePlate, escalatedAt: { not: null } },
+      orderBy: { escalatedAt: 'desc' },
+      take: 10,
+    }),
   ]);
 
   const forecasts = await prisma.cloudCostForecast.findMany({
@@ -328,6 +353,9 @@ export async function getAccountabilitySummary(licencePlate: string) {
     openAlerts,
     quarterlyReview,
     spendHistory,
+    alertHistory,
+    notificationLogs,
+    escalations,
   };
 }
 

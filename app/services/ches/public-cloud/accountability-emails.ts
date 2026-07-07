@@ -1,6 +1,7 @@
 import _compact from 'lodash-es/compact';
 import { IS_PROD } from '@/config';
 import { publicCloudTeamEmail, GlobalRole } from '@/constants';
+import { evaluatePreemptiveNotice } from '@/constants/cloud-cost-rules';
 import prisma from '@/core/prisma';
 import type { ProductAlertProps } from '@/emails/_components/public-cloud/AlertSpendSummary';
 import ConsumptionMilestoneTemplate from '@/emails/_templates/public-cloud/ConsumptionMilestone';
@@ -15,14 +16,77 @@ import ForecastRejectedTemplate from '@/emails/_templates/public-cloud/ForecastR
 import ForecastSubmittedTemplate from '@/emails/_templates/public-cloud/ForecastSubmitted';
 import MonthlyAccountabilityRecapTemplate from '@/emails/_templates/public-cloud/MonthlyAccountabilityRecap';
 import NonComplianceSummaryTemplate from '@/emails/_templates/public-cloud/NonComplianceSummary';
+import PreemptiveThresholdNoticeTemplate from '@/emails/_templates/public-cloud/PreemptiveThresholdNotice';
 import QuarterlyEscalationTemplate from '@/emails/_templates/public-cloud/QuarterlyEscalation';
 import QuarterlyForecastReminderTemplate from '@/emails/_templates/public-cloud/QuarterlyForecastReminder';
 import QuarterlySignOffReminderTemplate from '@/emails/_templates/public-cloud/QuarterlySignOffReminder';
-import { AccountabilityAlertLevel, AccountabilityStatus, ProjectStatus } from '@/prisma/client';
+import {
+  AccountabilityAlertLevel,
+  AccountabilityStatus,
+  ProjectStatus,
+  type CloudSpendSnapshot,
+} from '@/prisma/client';
 import { safeSendEmail, sendEmail } from '@/services/ches/core';
 import { getContent } from '@/services/ches/helpers';
+import {
+  billingPeriodScenario,
+  hasAccountabilityNotificationForScenario,
+  recordAccountabilityNotification,
+} from '@/services/db/accountability-notifications';
+import { getActiveCloudCostRulesConfig } from '@/services/db/cloud-cost-rules';
 import { findUserEmailsByAuthRole } from '@/services/keycloak/app-realm';
 import type { CspConsumptionAlert } from '@/validation-schemas/cloud-cost';
+
+type AccountabilityEmailPayload = {
+  subject: string;
+  to: string[];
+  cc?: string[];
+  body: string;
+};
+
+type AccountabilityEmailOptions = {
+  licencePlate?: string;
+  templateKey: string;
+  scenario?: string;
+  metadata?: Record<string, unknown>;
+  useSafeSend?: boolean;
+};
+
+async function sendAccountabilityEmail(email: AccountabilityEmailPayload, options: AccountabilityEmailOptions) {
+  const { licencePlate, templateKey, scenario, metadata, useSafeSend = true } = options;
+  const to = email.to.filter(Boolean);
+  const cc = email.cc?.filter(Boolean) ?? [];
+
+  if (!to.length) {
+    await recordAccountabilityNotification({
+      licencePlate,
+      templateKey,
+      scenario,
+      subject: email.subject,
+      recipients: [],
+      cc,
+      status: 'skipped_no_recipients',
+      metadata,
+    });
+    return;
+  }
+
+  const sendFn = useSafeSend ? safeSendEmail : sendEmail;
+  const result = await sendFn({ ...email, to, cc });
+
+  await recordAccountabilityNotification({
+    licencePlate,
+    templateKey,
+    scenario,
+    subject: email.subject,
+    recipients: to,
+    cc,
+    status: result ? 'sent' : 'failed',
+    metadata,
+  });
+
+  return result;
+}
 
 async function getProductTeamEmails(licencePlate: string) {
   const product = await prisma.publicCloudProduct.findFirst({
@@ -101,11 +165,19 @@ export async function sendQuarterlyForecastReminderEmail(licencePlate: string, q
     }),
   );
 
-  return safeSendEmail({
-    subject: `Quarterly forecast update — ${name} (${licencePlate})`,
-    to: emails,
-    body: content,
-  });
+  return sendAccountabilityEmail(
+    {
+      subject: `Quarterly forecast update — ${name} (${licencePlate})`,
+      to: emails,
+      body: content,
+    },
+    {
+      licencePlate,
+      templateKey: 'QUARTERLY_FORECAST_REMINDER',
+      scenario: `Q${quarter}-FY${fiscalYear}`,
+      metadata: { quarter, fiscalYear },
+    },
+  );
 }
 
 export async function sendForecastSubmittedEmail(
@@ -133,12 +205,20 @@ export async function sendForecastSubmittedEmail(
     }),
   );
 
-  return safeSendEmail({
-    subject: `Forecast submitted — ${product.name} (${licencePlate}) v${forecast.version}`,
-    to: recipients,
-    cc: [IS_PROD ? publicCloudTeamEmail : ''],
-    body: content,
-  });
+  return sendAccountabilityEmail(
+    {
+      subject: `Forecast submitted — ${product.name} (${licencePlate}) v${forecast.version}`,
+      to: recipients,
+      cc: [IS_PROD ? publicCloudTeamEmail : ''],
+      body: content,
+    },
+    {
+      licencePlate,
+      templateKey: 'FORECAST_SUBMITTED',
+      scenario: `v${forecast.version}`,
+      metadata: { version: forecast.version, horizonMonths: forecast.horizonMonths },
+    },
+  );
 }
 
 export async function sendForecastRejectedEmail(
@@ -157,11 +237,19 @@ export async function sendForecastRejectedEmail(
     }),
   );
 
-  return safeSendEmail({
-    subject: `Forecast rejected — ${name} (${licencePlate}) v${forecast.version}`,
-    to: emails,
-    body: content,
-  });
+  return sendAccountabilityEmail(
+    {
+      subject: `Forecast rejected — ${name} (${licencePlate}) v${forecast.version}`,
+      to: emails,
+      body: content,
+    },
+    {
+      licencePlate,
+      templateKey: 'FORECAST_REJECTED',
+      scenario: `v${forecast.version}`,
+      metadata: { version: forecast.version },
+    },
+  );
 }
 
 export async function sendNonComplianceSummaryEmail() {
@@ -196,12 +284,20 @@ export async function sendNonComplianceSummaryEmail() {
   const periodLabel = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long' });
   const content = await getContent(NonComplianceSummaryTemplate({ rows, periodLabel }));
 
-  return sendEmail({
-    subject: `Public Cloud non-compliance summary — ${periodLabel}`,
-    to: recipients,
-    cc: [IS_PROD ? publicCloudTeamEmail : ''],
-    body: content,
-  });
+  return sendAccountabilityEmail(
+    {
+      subject: `Public Cloud non-compliance summary — ${periodLabel}`,
+      to: recipients,
+      cc: [IS_PROD ? publicCloudTeamEmail : ''],
+      body: content,
+    },
+    {
+      templateKey: 'NON_COMPLIANCE_SUMMARY',
+      scenario: periodLabel,
+      metadata: { rowCount: rows.length },
+      useSafeSend: false,
+    },
+  );
 }
 
 export async function sendWeeklySignOffReminderEmail(licencePlate: string, quarter: number, fiscalYear: number) {
@@ -239,11 +335,19 @@ export async function sendWeeklySignOffReminderEmail(licencePlate: string, quart
     }),
   );
 
-  return safeSendEmail({
-    subject: `Quarterly sign-off reminder — ${product.name} (${licencePlate})`,
-    to: [poEmail],
-    body: content,
-  });
+  return sendAccountabilityEmail(
+    {
+      subject: `Quarterly sign-off reminder — ${product.name} (${licencePlate})`,
+      to: [poEmail],
+      body: content,
+    },
+    {
+      licencePlate,
+      templateKey: 'QUARTERLY_SIGN_OFF_REMINDER',
+      scenario: `Q${quarter}-FY${fiscalYear}`,
+      metadata: { quarter, fiscalYear, daysUntilMPlusOne },
+    },
+  );
 }
 
 export async function sendQuarterlyEscalationEmail(licencePlate: string, quarter: number, fiscalYear: number) {
@@ -260,12 +364,21 @@ export async function sendQuarterlyEscalationEmail(licencePlate: string, quarter
     }),
   );
 
-  return sendEmail({
-    subject: `[Escalation] Q${quarter} accountability incomplete — ${name} (${licencePlate})`,
-    to: directorEmails,
-    cc: _compact([...teamEmails, IS_PROD ? publicCloudTeamEmail : '']),
-    body: content,
-  });
+  return sendAccountabilityEmail(
+    {
+      subject: `[Escalation] Q${quarter} accountability incomplete — ${name} (${licencePlate})`,
+      to: directorEmails,
+      cc: _compact([...teamEmails, IS_PROD ? publicCloudTeamEmail : '']),
+      body: content,
+    },
+    {
+      licencePlate,
+      templateKey: 'QUARTERLY_ESCALATION',
+      scenario: `Q${quarter}-FY${fiscalYear}`,
+      metadata: { quarter, fiscalYear },
+      useSafeSend: false,
+    },
+  );
 }
 
 function toProductAlertProps(productName: string, licencePlate: string, alert: CspConsumptionAlert): ProductAlertProps {
@@ -350,13 +463,31 @@ function teamAlertSubject(productName: string, alert: CspConsumptionAlert) {
 export async function sendConsumptionAlertEmails(alert: CspConsumptionAlert) {
   const { emails, name } = await getProductTeamEmails(alert.licencePlate);
   const teamContent = await buildTeamAlertContent(name, alert);
+  const teamTemplateKey =
+    alert.alertType === 'MILESTONE'
+      ? 'CONSUMPTION_MILESTONE'
+      : alert.alertType === 'PACE'
+        ? 'CONSUMPTION_PACE_WARNING'
+        : `COST_ALERT_${alert.alertType}`;
 
   if (emails.length) {
-    await safeSendEmail({
-      subject: teamAlertSubject(name, alert),
-      to: emails,
-      body: teamContent,
-    });
+    await sendAccountabilityEmail(
+      {
+        subject: teamAlertSubject(name, alert),
+        to: emails,
+        body: teamContent,
+      },
+      {
+        licencePlate: alert.licencePlate,
+        templateKey: teamTemplateKey,
+        scenario: billingPeriodScenario(alert.billingPeriod.year, alert.billingPeriod.month),
+        metadata: {
+          alertType: alert.alertType,
+          periodYear: alert.billingPeriod.year,
+          periodMonth: alert.billingPeriod.month,
+        },
+      },
+    );
   }
 
   const varianceLevels: AccountabilityAlertLevel[] = [
@@ -370,12 +501,24 @@ export async function sendConsumptionAlertEmails(alert: CspConsumptionAlert) {
     const adminEmails = await getAdminAlertEmails(level);
     if (adminEmails.length) {
       const adminContent = await buildAdminAlertContent(name, alert, level);
-      await safeSendEmail({
-        subject: `[Admin] ${level} variance alert — ${name} (${alert.licencePlate})`,
-        to: adminEmails,
-        cc: [IS_PROD ? publicCloudTeamEmail : ''],
-        body: adminContent,
-      });
+      await sendAccountabilityEmail(
+        {
+          subject: `[Admin] ${level} variance alert — ${name} (${alert.licencePlate})`,
+          to: adminEmails,
+          cc: [IS_PROD ? publicCloudTeamEmail : ''],
+          body: adminContent,
+        },
+        {
+          licencePlate: alert.licencePlate,
+          templateKey: `COST_ALERT_${level}_ADMIN`,
+          scenario: billingPeriodScenario(alert.billingPeriod.year, alert.billingPeriod.month),
+          metadata: {
+            alertType: alert.alertType,
+            periodYear: alert.billingPeriod.year,
+            periodMonth: alert.billingPeriod.month,
+          },
+        },
+      );
     }
   }
 }
@@ -414,10 +557,74 @@ export async function sendMonthlyAccountabilityRecapEmail() {
 
   if (!recipients.length) return;
 
-  return sendEmail({
-    subject: `Public Cloud monthly accountability recap — ${periodLabel}`,
-    to: recipients,
-    cc: [IS_PROD ? publicCloudTeamEmail : ''],
-    body: content,
-  });
+  return sendAccountabilityEmail(
+    {
+      subject: `Public Cloud monthly accountability recap — ${periodLabel}`,
+      to: recipients,
+      cc: [IS_PROD ? publicCloudTeamEmail : ''],
+      body: content,
+    },
+    {
+      templateKey: 'MONTHLY_ACCOUNTABILITY_RECAP',
+      scenario: periodLabel,
+      metadata: { rowCount: rows.length },
+      useSafeSend: false,
+    },
+  );
+}
+
+export async function maybeSendPreemptiveThresholdNotice(snapshot: CloudSpendSnapshot) {
+  const rules = await getActiveCloudCostRulesConfig();
+  const dayOfMonth = snapshot.dayOfMonth ?? new Date(snapshot.asOfDate).getDate();
+  const pace = rules.earlyPaceWarning;
+
+  const shouldSend = evaluatePreemptiveNotice(snapshot.forecastAmount, snapshot.amountToDate, dayOfMonth, pace);
+  if (!shouldSend) return;
+
+  const scenario = billingPeriodScenario(snapshot.periodYear, snapshot.periodMonth);
+  const alreadySent = await hasAccountabilityNotificationForScenario(
+    snapshot.licencePlate,
+    'PREEMPTIVE_THRESHOLD',
+    scenario,
+  );
+  if (alreadySent) return;
+
+  const { emails, name } = await getProductTeamEmails(snapshot.licencePlate);
+  if (!emails.length) return;
+
+  const content = await getContent(
+    PreemptiveThresholdNoticeTemplate({
+      productName: name,
+      licencePlate: snapshot.licencePlate,
+      spendToDate: snapshot.amountToDate,
+      forecastAmount: snapshot.forecastAmount,
+      projectedMonthEnd: snapshot.projectedMonthEnd,
+      varianceAmount: snapshot.varianceAmount,
+      variancePercent: snapshot.variancePercent,
+      consumptionPercentOfForecast: snapshot.consumptionPercent,
+      currency: snapshot.currency,
+      preemptiveDayOfMonth: pace.preemptiveByDayOfMonth ?? undefined,
+      preemptivePercent: pace.preemptivePercentOfForecast ?? undefined,
+    }),
+  );
+
+  await sendAccountabilityEmail(
+    {
+      subject: `Pre-emptive spend notice (A0) — ${name}`,
+      to: emails,
+      body: content,
+    },
+    {
+      licencePlate: snapshot.licencePlate,
+      templateKey: 'PREEMPTIVE_THRESHOLD',
+      scenario,
+      metadata: {
+        periodYear: snapshot.periodYear,
+        periodMonth: snapshot.periodMonth,
+        dayOfMonth,
+        preemptivePercent: pace.preemptivePercentOfForecast,
+        preemptiveDayOfMonth: pace.preemptiveByDayOfMonth,
+      },
+    },
+  );
 }

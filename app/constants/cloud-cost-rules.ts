@@ -16,7 +16,12 @@ export const DEFAULT_CLOUD_COST_RULES = {
     a3: { percentAbove: 200, minDollarsAbove: 500, dollarsAbove: 2000 },
   },
   consumptionMilestones: { tiers: [50, 80, 100], stepPercent: 25 },
-  earlyPaceWarning: { percentOfForecast: 50, byDayOfMonth: 10 },
+  earlyPaceWarning: {
+    percentOfForecast: 50,
+    byDayOfMonth: 10,
+    preemptivePercentOfForecast: 30,
+    preemptiveByDayOfMonth: 5,
+  },
   forecastPolicy: { horizonMonths: 24, quarterStartMonths: [1, 4, 7, 10] },
   quarterlyReview: { softQrRequired: true, spendLookbackMonths: 3, poSignOffRequired: true },
   reminderPolicy: { weeklyUntilSignOff: true, escalateAtMPlusOne: true },
@@ -75,6 +80,25 @@ export function evaluatePaceWarning(
   return (spend / forecast) * 100 >= pace.percentOfForecast;
 }
 
+/** A0 spike: softer pre-emptive notice before the full PACE threshold fires. */
+export function evaluatePreemptiveNotice(
+  forecast: number,
+  spend: number,
+  dayOfMonth: number,
+  pace: CloudCostEarlyPaceWarning,
+): boolean {
+  const preemptivePercent = pace.preemptivePercentOfForecast;
+  const preemptiveDay = pace.preemptiveByDayOfMonth;
+  if (preemptivePercent == null || preemptiveDay == null || forecast <= 0) return false;
+  if (dayOfMonth > preemptiveDay) return false;
+
+  const consumptionPercent = (spend / forecast) * 100;
+  if (consumptionPercent < preemptivePercent) return false;
+  if (evaluatePaceWarning(forecast, spend, dayOfMonth, pace)) return false;
+
+  return true;
+}
+
 export function evaluateMilestonePercent(
   forecast: number,
   spend: number,
@@ -106,6 +130,7 @@ export type RulePreviewInput = {
 export type RulePreviewResult = {
   varianceLevel: AccountabilityAlertLevel | null;
   paceWarning: boolean;
+  preemptiveNotice: boolean;
   milestonePercent: number | null;
   varianceAmount: number;
   variancePercent: number;
@@ -121,6 +146,7 @@ export function previewRuleEvaluation(input: RulePreviewInput, rules: CloudCostR
   return {
     varianceLevel: evaluateVarianceAlertLevel(forecastAmount, spendToDate, rules.varianceThresholds),
     paceWarning: evaluatePaceWarning(forecastAmount, spendToDate, dayOfMonth, rules.earlyPaceWarning),
+    preemptiveNotice: evaluatePreemptiveNotice(forecastAmount, spendToDate, dayOfMonth, rules.earlyPaceWarning),
     milestonePercent: evaluateMilestonePercent(forecastAmount, spendToDate, rules.consumptionMilestones),
     varianceAmount,
     variancePercent,

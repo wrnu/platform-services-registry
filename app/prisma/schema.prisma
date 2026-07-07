@@ -796,8 +796,10 @@ type CloudCostConsumptionMilestones {
 }
 
 type CloudCostEarlyPaceWarning {
-  percentOfForecast Float
-  byDayOfMonth      Int
+  percentOfForecast           Float
+  byDayOfMonth                Int
+  preemptivePercentOfForecast Float?
+  preemptiveByDayOfMonth      Int?
 }
 
 type CloudCostForecastPolicy {
@@ -946,6 +948,19 @@ model CloudCostAccountabilityState {
   evaluatedAt      DateTime
   createdAt        DateTime                  @default(now())
   updatedAt        DateTime                  @updatedAt
+}
+
+model AccountabilityNotificationLog {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  licencePlate String?
+  templateKey  String
+  scenario     String?
+  subject      String
+  recipients   String[]
+  cc           String[]
+  status       String
+  metadata     Json?
+  sentAt       DateTime @default(now())
 }
 
 model CloudCostRulesConfig {

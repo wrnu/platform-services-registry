@@ -143,6 +143,12 @@ export default function UserMenu() {
       permission: 'viewPublicCloudAccountability',
     },
     {
+      text: 'Accountability — Audit',
+      Icon: IconSignLeft,
+      href: '/public-cloud/accountability/audit',
+      permission: 'viewPublicCloudAccountability',
+    },
+    {
       text: 'Public Cloud Cost Rules',
       Icon: IconClockDollar,
       href: '/admin/public-cloud/cost-rules',

@@ -128,6 +128,16 @@ export const publicCloudAccountabilitySearchBodySchema = z.object({
 
 export type PublicCloudAccountabilitySearchBody = z.infer<typeof publicCloudAccountabilitySearchBodySchema>;
 
+export const accountabilityNotificationSearchBodySchema = z.object({
+  licencePlate: z.string().optional(),
+  templateKey: z.string().optional(),
+  search: z.string().optional(),
+  page: z.number().optional(),
+  pageSize: z.number().optional(),
+});
+
+export type AccountabilityNotificationSearchBody = z.infer<typeof accountabilityNotificationSearchBodySchema>;
+
 export const accountabilityExportBodySchema = z.object({
   provider: z.nativeEnum(Provider).optional(),
 });
@@ -153,6 +163,8 @@ export const cloudCostRulesConfigBodySchema = z.object({
   earlyPaceWarning: z.object({
     percentOfForecast: z.number().min(0),
     byDayOfMonth: z.number().int().min(1).max(31),
+    preemptivePercentOfForecast: z.number().min(0).optional(),
+    preemptiveByDayOfMonth: z.number().int().min(1).max(31).optional(),
   }),
   forecastPolicy: z.object({
     horizonMonths: z.number().int().min(1).max(36),

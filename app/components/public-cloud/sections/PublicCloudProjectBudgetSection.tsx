@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import Budget from '@/components/form/Budget';
 import LoadingBox from '@/components/generic/LoadingBox';
+import AccountabilityAuditHistory from '@/components/public-cloud/accountability/AccountabilityAuditHistory';
 import AccountabilityGuidancePanel from '@/components/public-cloud/accountability/AccountabilityGuidancePanel';
 import AccountabilityQuarterlyChecklist from '@/components/public-cloud/accountability/AccountabilityQuarterlyChecklist';
 import AlertResponseModal from '@/components/public-cloud/accountability/AlertResponseModal';
@@ -375,6 +376,13 @@ export default function PublicCloudProjectBudgetSection({
                   <p className="text-gray-600 text-sm">No open alerts.</p>
                 )}
               </section>
+
+              <AccountabilityAuditHistory
+                forecasts={data.forecasts}
+                alertHistory={data.alertHistory}
+                notificationLogs={data.notificationLogs}
+                escalations={data.escalations}
+              />
 
               {alertModal && (
                 <AlertResponseModal

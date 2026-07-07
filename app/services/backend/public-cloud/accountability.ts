@@ -99,3 +99,7 @@ export async function downloadBundledAccountabilityExport(provider?: string) {
 
   return result;
 }
+
+export async function searchAccountabilityNotifications(data: Record<string, unknown>) {
+  return adminInstance.post('/notifications/search', data).then((res) => res.data);
+}

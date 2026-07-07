@@ -32,6 +32,7 @@ import { safeSendEmail } from '@/services/ches/core';
 import { seedDefaultCloudCostRulesConfig } from '@/services/db/cloud-cost-rules';
 
 async function cleanUpAccountabilityData() {
+  await prisma.accountabilityNotificationLog.deleteMany();
   await prisma.accountabilityAlert.deleteMany();
   await prisma.cloudSpendSnapshot.deleteMany();
   await prisma.cloudSpendHistory.deleteMany();
@@ -78,6 +79,45 @@ describe('Public Cloud accountability APIs', () => {
       expect(snapshot.amountToDate).toBe(3200);
     });
 
+    it('sends pre-emptive notice (A0) when threshold met', async () => {
+      const payload = {
+        ...buildCspSnapshotPayload(licencePlate, provider, currency),
+        spendToDate: 1600,
+        currentMonthForecast: 5000,
+        consumptionPercentOfForecast: 32,
+        varianceAmount: -3400,
+        variancePercent: -68,
+        dayOfMonth: 4,
+      };
+
+      const response = await putCspConsumption(payload);
+      expect(response.status).toBe(200);
+
+      const log = await prisma.accountabilityNotificationLog.findFirst({
+        where: { licencePlate, templateKey: 'PREEMPTIVE_THRESHOLD' },
+      });
+      expect(log).toBeTruthy();
+      expect(log?.status).toBe('sent');
+      expect(safeSendEmail).toHaveBeenCalled();
+    });
+
+    it('does not duplicate pre-emptive notice in the same billing period', async () => {
+      const payload = {
+        ...buildCspSnapshotPayload(licencePlate, provider, currency),
+        spendToDate: 1700,
+        currentMonthForecast: 5000,
+        consumptionPercentOfForecast: 34,
+        dayOfMonth: 4,
+      };
+
+      await putCspConsumption(payload);
+
+      const count = await prisma.accountabilityNotificationLog.count({
+        where: { licencePlate, templateKey: 'PREEMPTIVE_THRESHOLD' },
+      });
+      expect(count).toBe(1);
+    });
+
     it('records consumption alert and sends team email', async () => {
       const response = await postCspAlert(buildCspAlertPayload(licencePlate, provider, 'MILESTONE', currency));
       expect(response.status).toBe(200);
@@ -87,6 +127,11 @@ describe('Public Cloud accountability APIs', () => {
       expect(alert.milestonePercent).toBe(80);
 
       expect(safeSendEmail).toHaveBeenCalled();
+
+      const log = await prisma.accountabilityNotificationLog.findFirst({
+        where: { licencePlate, templateKey: 'CONSUMPTION_MILESTONE' },
+      });
+      expect(log).toBeTruthy();
     });
 
     it('upserts consumption history', async () => {
@@ -127,6 +172,9 @@ describe('Public Cloud accountability APIs', () => {
       expect(summary.snapshot).toBeTruthy();
       expect(summary.openAlerts?.length).toBeGreaterThan(0);
       expect(summary.quarterlyReview).toBeTruthy();
+      expect(Array.isArray(summary.alertHistory)).toBe(true);
+      expect(Array.isArray(summary.notificationLogs)).toBe(true);
+      expect(Array.isArray(summary.forecasts)).toBe(true);
     });
 
     it('creates, submits, and approves a forecast', async () => {
