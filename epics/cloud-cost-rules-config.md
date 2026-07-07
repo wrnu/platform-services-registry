@@ -176,13 +176,11 @@ Only one config version should be **active** at a time. Historical evaluations s
 
 ## Open policy decisions
 
--   [ ] **Notification routing** — map Cloud PO / Director of Cloud / Director of Finance (see below)
+-   [x] **Notification routing** — implemented on cost-rules page (see [Notification routing](#notification-routing))
 -   [ ] Confirm currency handling for dollar thresholds on Azure (CAD) vs AWS (USD) Project Sets
 -   [x] MoU **limited access** — **out of scope** for Registry (manual ops if needed; no registry flag or provisioner integration)
 
-### To be solved: admin and escalation notification routing
-
-**Problem:** The governance whiteboard defines **platform-level recipients** who are not on the project team. The Registry must decide who receives admin variance alerts (A1–A3), M+1 quarterly escalations, and the monthly recap. Today this is **not configurable** on the cost-rules page (thresholds and schedules only).
+### Notification routing
 
 **Business roles (whiteboard)**
 
@@ -208,28 +206,18 @@ Project team recipients (PO, Technical Lead) are resolved from the product recor
 | Non-compliance  | `nonComplianceEmails`  | `public-admin`, `admin`                                   |
 | Escalation list | `escalationListEmails` | `public-admin`, `admin`                                   |
 
-Previously hardcoded in `app/services/ches/public-cloud/accountability-emails.ts` via Keycloak **global roles**:
+`publicCloudTeamEmail` is CC’d in prod on several admin emails. Routing is stored on `CloudCostRulesConfig.notificationRouting` (JSON) and edited on `/admin/public-cloud/cost-rules`.
 
-`publicCloudTeamEmail` is CC’d in prod on several admin emails. `CloudCostRulesConfig` has **no** `notificationRouting` field in Prisma (only sketched in the data model section above).
-
-**Gaps to resolve**
+**Remaining policy questions**
 
 1. **Role mapping** — Do `billing-reviewer` / `billing-manager` / `public-admin` correctly represent Cloud PO, Director of Cloud, and Director of Finance for production?
 2. **Roles vs mailing lists** — Should routing use Keycloak roles (IAM-owned), static CHES mailing lists, configurable emails on rules config, or a mix?
 3. **Global vs org-scoped** — M+1 escalation text says **Director / ED** for the **project**; current code emails **global** billing/public-admin roles, not ministry or portfolio contacts from Registry org data.
-4. **Where to configure** — Cost-rules page (versioned with thresholds), separate admin UI, env/constants only, or Keycloak-only with docs?
-5. **Per-scenario routing** — Epic sketched `notificationRouting: { a1, a2, a3, escalation, monthlyRecap }`; confirm shape and whether recap is one bundled distro vs per-role emails.
 
 **Decision needed from policy owners**
 
 -   Confirm target recipients (people, roles, or lists) for each scenario in [email scenarios](./cloud-cost-email-scenarios.md).
 -   Choose implementation approach and document in [Registry roles guide](../docs/business-logic/registry-roles-guide.md) once fixed.
-
-**Suggested follow-up (engineering, after policy decision)**
-
--   Add `notificationRouting` to `CloudCostRulesConfig` **or** a dedicated notification settings surface.
--   Replace `getAdminAlertEmails` / `getDirectorEscalationEmails` / recap recipient logic with the agreed mapping.
--   Expose read-only “who receives what” on admin UI so ops can verify without reading code.
 
 ## Related documents
 
