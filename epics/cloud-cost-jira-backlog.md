@@ -112,7 +112,7 @@ Tracks [Cloud Cost Accountability](./cloud-cost.md) work against the **Cloud Reg
 | ---------------- | -------- | ---------------------------------------------------------------------------- |
 | Story 1.5 reject | **Done** | API + UI                                                                     |
 | Scenario 10      | **Done** | `ForecastSubmitted` email                                                    |
-| Stories 6.3–6.4  | **Done** | Director / executive dashboards                                              |
+| Stories 6.3–6.4  | **Done** | Consolidated into `/accountability/all` (KPI cards + needs-action preset)    |
 | Stories 7.1–7.5  | **Done** | Product audit tabs + `/accountability/audit`                                 |
 | Production jobs  | **Done** | Unpause accountability DAGs manually in Airflow after deploy (dev/test/prod) |
 

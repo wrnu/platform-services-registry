@@ -8,6 +8,6 @@ export const POST = createApiHandler({
   permissions: [GlobalPermissions.ViewPublicCloudAccountability],
   validations: { body: publicCloudAccountabilitySearchBodySchema },
 })(async ({ body }) => {
-  const { data, totalCount } = await searchPublicCloudAccountability(body);
-  return OkResponse({ data, totalCount });
+  const { data, totalCount, summary } = await searchPublicCloudAccountability(body);
+  return OkResponse({ data, totalCount, summary });
 });

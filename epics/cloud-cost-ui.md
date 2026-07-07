@@ -20,14 +20,15 @@ Legacy `/accountability` URLs redirect to `/edit`.
 
 ### Admin navigation
 
-| Route                                     | Purpose                                        | Jira  | Status |
-| ----------------------------------------- | ---------------------------------------------- | ----- | ------ |
-| `/public-cloud/accountability/all`        | Cross-project governance dashboard (Story 6.2) | CR-23 | Done   |
-| `/public-cloud/accountability/compliance` | Escalation list (`onEscalationList`)           | CR-24 | Done   |
-| `/public-cloud/accountability/director`   | Projects needing action (Story 6.3)            | —     | Done   |
-| `/public-cloud/accountability/executive`  | Portfolio summary (Story 6.4)                  | —     | Done   |
-| `/public-cloud/accountability/audit`      | Notification audit log (Story 7.5)             | —     | Done   |
-| `/admin/public-cloud/cost-rules`          | Rules configuration (RC.1–RC.3)                | CR-39 | Done   |
+| Route                                | Purpose                                                     | Jira        | Status |
+| ------------------------------------ | ----------------------------------------------------------- | ----------- | ------ |
+| `/public-cloud/accountability/all`   | Governance dashboard: KPI cards + presets (Stories 6.2–6.4) | CR-23/CR-24 | Done   |
+| `/public-cloud/accountability/audit` | Notification audit log (Story 7.5)                          | —           | Done   |
+| `/admin/public-cloud/cost-rules`     | Rules configuration (RC.1–RC.3)                             | CR-39       | Done   |
+
+The former `compliance` (CR-24, Story 6.2), `director` (Story 6.3), and `executive` (Story 6.4)
+routes are consolidated into `/all` as the **Escalation list** / **Needs action** presets and the
+KPI summary cards; the old URLs redirect with the matching preset applied (email links still work).
 
 ---
 
@@ -126,7 +127,9 @@ Current-month spend panel, historical summary, link to full history route, Excel
 | Current month variance % |                                     |
 | Escalation flag          | `onEscalationList`                  |
 
-Features: filter panel, pagination, bundled Excel export (CR-42; CSV via API `format=csv`).
+Features: KPI summary cards (active / needing action / escalated / open alerts), view presets
+(All projects / Needs action / Escalation list), filter panel, pagination, bundled Excel export
+(CR-42; CSV via API `format=csv`).
 
 ---
 

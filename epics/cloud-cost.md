@@ -614,7 +614,7 @@ Track progress here (no separate GitHub issues). **Jira keys (CR-1–CR-42)** ar
 | Accountability UI tab            | Done     | CR-1         | Forecast grid, quarterly checklist, alert modals, audit history tabs                                                                |
 | Product costs page               | Done     | CR-2, CR-40  | Provider-specific titles; `/costs/history` route                                                                                    |
 | Actuals vs forecast              | Done     | CR-30–CR-31  | Actual row in grid, consumption %, CSP history                                                                                      |
-| Admin governance dashboard       | Done     | CR-23        | `/public-cloud/accountability/all`, compliance, director, executive, audit                                                          |
+| Admin governance dashboard       | Done     | CR-23        | `/public-cloud/accountability/all` (KPI cards + needs-action/escalation presets) + `/audit`; old routes redirect                    |
 | Rules config admin UI            | Done     | CR-39        | Cost rules + A0 thresholds + notification routing                                                                                   |
 | CHES email templates             | Done     | CR-32–CR-39  | Milestone, pace, A0, A1–A3, quarterly, escalation, escalation list, monthly recap, forecast submitted/rejected                      |
 | Notification audit               | Done     | 7.5          | `AccountabilityNotificationLog`; `/public-cloud/accountability/audit`                                                               |

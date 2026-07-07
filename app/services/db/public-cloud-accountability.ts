@@ -789,6 +789,16 @@ export async function searchPublicCloudAccountability({
     };
   });
 
+  // Portfolio KPIs are computed before status/alert/escalation filters so the
+  // summary cards reflect the whole (search/provider-scoped) portfolio, not the
+  // currently selected preset.
+  const summary = {
+    totalProjects: rows.length,
+    needingAction: rows.filter((r) => r.status !== AccountabilityStatus.COMPLIANT).length,
+    escalated: rows.filter((r) => r.onEscalationList).length,
+    openAlerts: rows.filter((r) => r.highestOpenAlert).length,
+  };
+
   if (status) {
     rows = rows.filter((r) => r.status === status);
   }
@@ -816,5 +826,9 @@ export async function searchPublicCloudAccountability({
   const totalCount = rows.length;
   const data = rows.slice(skip ?? 0, (skip ?? 0) + (take ?? rows.length));
 
-  return { data, totalCount };
+  return { data, totalCount, summary };
 }
+
+export type PublicCloudAccountabilitySearchSummary = Awaited<
+  ReturnType<typeof searchPublicCloudAccountability>
+>['summary'];

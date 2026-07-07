@@ -30,3 +30,19 @@ export const accountabilityProviderOptions = [
   { label: 'AWS LZA', value: Provider.AWS_LZA },
   { label: 'Azure', value: Provider.AZURE },
 ];
+
+/** Statuses that require PO/TL or reviewer action (the former director view). */
+export const accountabilityActionStatuses: AccountabilityStatus[] = [
+  AccountabilityStatus.ESCALATED,
+  AccountabilityStatus.FORECAST_REVIEW_REQUIRED,
+  AccountabilityStatus.VARIANCE_REVIEW_REQUIRED,
+  AccountabilityStatus.FORECAST_REQUIRED,
+];
+
+export type AccountabilityPreset = 'all' | 'needs-action' | 'escalation';
+
+export const accountabilityPresetOptions: { label: string; value: AccountabilityPreset }[] = [
+  { label: 'All projects', value: 'all' },
+  { label: 'Needs action', value: 'needs-action' },
+  { label: 'Escalation list', value: 'escalation' },
+];
