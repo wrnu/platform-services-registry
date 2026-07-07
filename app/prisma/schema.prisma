@@ -818,6 +818,16 @@ type CloudCostReminderPolicy {
   escalateAtMPlusOne Boolean
 }
 
+type CloudCostNotificationRouting {
+  a1AdminEmails        String[]
+  a2AdminEmails        String[]
+  a3AdminEmails        String[]
+  escalationEmails     String[]
+  monthlyRecapEmails   String[]
+  nonComplianceEmails  String[]
+  escalationListEmails String[]
+}
+
 type ForecastMonthlyValue {
   year     Int
   month    Int
@@ -976,6 +986,7 @@ model CloudCostRulesConfig {
   reminderPolicy         CloudCostReminderPolicy
   monthlyRecapDayOfMonth Int                            @default(1)
   projectionMethod       ProjectionMethod               @default(LINEAR_EXTRAPOLATION)
+  notificationRouting    CloudCostNotificationRouting?
   createdById            String?                        @db.ObjectId
   createdAt              DateTime                       @default(now())
 }

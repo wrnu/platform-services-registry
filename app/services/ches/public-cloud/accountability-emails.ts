@@ -12,6 +12,7 @@ import CostAlertA2Template from '@/emails/_templates/public-cloud/CostAlertA2';
 import CostAlertA2AdminTemplate from '@/emails/_templates/public-cloud/CostAlertA2Admin';
 import CostAlertA3Template from '@/emails/_templates/public-cloud/CostAlertA3';
 import CostAlertA3AdminTemplate from '@/emails/_templates/public-cloud/CostAlertA3Admin';
+import EscalationListSummaryTemplate from '@/emails/_templates/public-cloud/EscalationListSummary';
 import ForecastRejectedTemplate from '@/emails/_templates/public-cloud/ForecastRejected';
 import ForecastSubmittedTemplate from '@/emails/_templates/public-cloud/ForecastSubmitted';
 import MonthlyAccountabilityRecapTemplate from '@/emails/_templates/public-cloud/MonthlyAccountabilityRecap';
@@ -23,6 +24,7 @@ import QuarterlySignOffReminderTemplate from '@/emails/_templates/public-cloud/Q
 import {
   AccountabilityAlertLevel,
   AccountabilityStatus,
+  CloudCostNotificationRouting,
   ProjectStatus,
   type CloudSpendSnapshot,
 } from '@/prisma/client';
@@ -111,27 +113,51 @@ async function getProductTeamEmails(licencePlate: string) {
   };
 }
 
-async function getAdminAlertEmails(level: AccountabilityAlertLevel) {
-  const adminEmails = await findUserEmailsByAuthRole(GlobalRole.Admin);
-  const publicAdminEmails = await findUserEmailsByAuthRole(GlobalRole.PublicAdmin);
-
-  if (level === AccountabilityAlertLevel.A1) {
-    return _uniqEmails([...adminEmails, ...publicAdminEmails]);
-  }
-
-  const billingReviewerEmails = await findUserEmailsByAuthRole(GlobalRole.BillingReviewer);
-  const emails = [...adminEmails, ...publicAdminEmails, ...billingReviewerEmails];
-
-  if (level === AccountabilityAlertLevel.A3) {
-    const billingManagerEmails = await findUserEmailsByAuthRole(GlobalRole.BillingManager);
-    return _uniqEmails([...emails, ...billingManagerEmails]);
-  }
-
-  return _uniqEmails(emails);
-}
-
 function _uniqEmails(emails: string[]) {
   return [...new Set(emails.filter(Boolean))];
+}
+
+type RoutingField = keyof CloudCostNotificationRouting;
+
+async function resolveRoutingEmails(field: RoutingField, fallback: () => Promise<string[]>) {
+  const rules = await getActiveCloudCostRulesConfig();
+  const configured = rules.notificationRouting?.[field]?.filter(Boolean) ?? [];
+  if (configured.length) return _uniqEmails(configured);
+  return fallback();
+}
+
+async function getDefaultA1AdminEmails() {
+  return _uniqEmails([
+    ...(await findUserEmailsByAuthRole(GlobalRole.Admin)),
+    ...(await findUserEmailsByAuthRole(GlobalRole.PublicAdmin)),
+  ]);
+}
+
+async function getDefaultA2AdminEmails() {
+  return _uniqEmails([
+    ...(await getDefaultA1AdminEmails()),
+    ...(await findUserEmailsByAuthRole(GlobalRole.BillingReviewer)),
+  ]);
+}
+
+async function getDefaultA3AdminEmails() {
+  return _uniqEmails([
+    ...(await getDefaultA2AdminEmails()),
+    ...(await findUserEmailsByAuthRole(GlobalRole.BillingManager)),
+  ]);
+}
+
+async function getAdminAlertEmails(level: AccountabilityAlertLevel) {
+  switch (level) {
+    case AccountabilityAlertLevel.A1:
+      return resolveRoutingEmails('a1AdminEmails', getDefaultA1AdminEmails);
+    case AccountabilityAlertLevel.A2:
+      return resolveRoutingEmails('a2AdminEmails', getDefaultA2AdminEmails);
+    case AccountabilityAlertLevel.A3:
+      return resolveRoutingEmails('a3AdminEmails', getDefaultA3AdminEmails);
+    default:
+      throw new Error(`No admin template for alert level: ${level}`);
+  }
 }
 
 export function getMPlusOneDate(fiscalYear: number, quarter: number) {
@@ -145,11 +171,13 @@ export function getDaysUntilMPlusOne(fiscalYear: number, quarter: number, from =
 }
 
 async function getDirectorEscalationEmails() {
-  return _uniqEmails([
-    ...(await findUserEmailsByAuthRole(GlobalRole.PublicAdmin)),
-    ...(await findUserEmailsByAuthRole(GlobalRole.BillingManager)),
-    ...(await findUserEmailsByAuthRole(GlobalRole.BillingReviewer)),
-  ]);
+  return resolveRoutingEmails('escalationEmails', async () =>
+    _uniqEmails([
+      ...(await findUserEmailsByAuthRole(GlobalRole.PublicAdmin)),
+      ...(await findUserEmailsByAuthRole(GlobalRole.BillingManager)),
+      ...(await findUserEmailsByAuthRole(GlobalRole.BillingReviewer)),
+    ]),
+  );
 }
 
 export async function sendQuarterlyForecastReminderEmail(licencePlate: string, quarter: number, fiscalYear: number) {
@@ -275,10 +303,12 @@ export async function sendNonComplianceSummaryEmail() {
     })
     .filter((row) => row.status !== AccountabilityStatus.COMPLIANT);
 
-  const recipients = _uniqEmails([
-    ...(await findUserEmailsByAuthRole(GlobalRole.PublicAdmin)),
-    ...(await findUserEmailsByAuthRole(GlobalRole.Admin)),
-  ]);
+  const recipients = await resolveRoutingEmails('nonComplianceEmails', async () =>
+    _uniqEmails([
+      ...(await findUserEmailsByAuthRole(GlobalRole.PublicAdmin)),
+      ...(await findUserEmailsByAuthRole(GlobalRole.Admin)),
+    ]),
+  );
   if (!recipients.length) return;
 
   const periodLabel = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long' });
@@ -293,6 +323,56 @@ export async function sendNonComplianceSummaryEmail() {
     },
     {
       templateKey: 'NON_COMPLIANCE_SUMMARY',
+      scenario: periodLabel,
+      metadata: { rowCount: rows.length },
+      useSafeSend: false,
+    },
+  );
+}
+
+export async function sendEscalationListSummaryEmail() {
+  const products = await prisma.publicCloudProduct.findMany({
+    where: { status: ProjectStatus.ACTIVE },
+    select: { licencePlate: true, name: true },
+  });
+
+  const states = await prisma.cloudCostAccountabilityState.findMany({
+    where: { licencePlate: { in: products.map((p) => p.licencePlate) } },
+  });
+  const stateMap = new Map(states.map((s) => [s.licencePlate, s]));
+
+  const rows = products
+    .filter((p) => stateMap.get(p.licencePlate)?.onEscalationList)
+    .map((p) => {
+      const state = stateMap.get(p.licencePlate);
+      return {
+        licencePlate: p.licencePlate,
+        name: p.name,
+        status: state?.status ?? AccountabilityStatus.FORECAST_REQUIRED,
+        highestOpenAlert: state?.highestOpenAlert,
+      };
+    });
+
+  const recipients = await resolveRoutingEmails('escalationListEmails', async () =>
+    _uniqEmails([
+      ...(await findUserEmailsByAuthRole(GlobalRole.PublicAdmin)),
+      ...(await findUserEmailsByAuthRole(GlobalRole.Admin)),
+    ]),
+  );
+  if (!recipients.length || !rows.length) return;
+
+  const periodLabel = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long' });
+  const content = await getContent(EscalationListSummaryTemplate({ rows, periodLabel }));
+
+  return sendAccountabilityEmail(
+    {
+      subject: `Public Cloud escalation list — ${periodLabel}`,
+      to: recipients,
+      cc: [IS_PROD ? publicCloudTeamEmail : ''],
+      body: content,
+    },
+    {
+      templateKey: 'ESCALATION_LIST_SUMMARY',
       scenario: periodLabel,
       metadata: { rowCount: rows.length },
       useSafeSend: false,
@@ -549,11 +629,13 @@ export async function sendMonthlyAccountabilityRecapEmail() {
   const periodLabel = now.toLocaleDateString(undefined, { year: 'numeric', month: 'long' });
   const content = await getContent(MonthlyAccountabilityRecapTemplate({ rows, periodLabel }));
 
-  const recipients = _uniqEmails([
-    ...(await findUserEmailsByAuthRole(GlobalRole.PublicAdmin)),
-    ...(await findUserEmailsByAuthRole(GlobalRole.BillingReviewer)),
-    ...(await findUserEmailsByAuthRole(GlobalRole.BillingManager)),
-  ]);
+  const recipients = await resolveRoutingEmails('monthlyRecapEmails', async () =>
+    _uniqEmails([
+      ...(await findUserEmailsByAuthRole(GlobalRole.PublicAdmin)),
+      ...(await findUserEmailsByAuthRole(GlobalRole.BillingReviewer)),
+      ...(await findUserEmailsByAuthRole(GlobalRole.BillingManager)),
+    ]),
+  );
 
   if (!recipients.length) return;
 

@@ -1,11 +1,12 @@
 'use client';
 
-import { Alert } from '@mantine/core';
+import { Alert, Button } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import ExportButton from '@/components/buttons/ExportButton';
 import LoadingBox from '@/components/generic/LoadingBox';
+import { getProviderSpendLabel } from '@/components/public-cloud/accountability/forecast-grid-utils';
 import CurrentMonthSpendPanel from '@/components/public-cloud/costs/CurrentMonthSpendPanel';
 import HistoricalSpendPanel from '@/components/public-cloud/costs/HistoricalSpendPanel';
 import { GlobalRole } from '@/constants';
@@ -22,6 +23,7 @@ export default publicCloudProductCosts(() => {
   const licencePlate = (params?.licencePlate as string) ?? '';
   const [, productSnap] = usePublicProductState();
   const product = productSnap.currentProduct;
+  const spendLabel = getProviderSpendLabel(product?.provider);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['productCosts', licencePlate],
@@ -50,21 +52,33 @@ export default publicCloudProductCosts(() => {
   }
 
   const canViewAccountability = product?._permissions?.viewAccountability;
+  const historyMonths = data?.spendHistory?.months ?? [];
 
   return (
     <div className="space-y-8">
       <CurrentMonthSpendPanel
         snapshot={data?.snapshot ?? null}
         billingPeriod={data?.billingPeriod}
-        title="Current month cloud spend"
+        title={`Current month ${spendLabel.toLowerCase()}`}
         showTotalHighlight
       />
 
-      <HistoricalSpendPanel months={data?.spendHistory?.months ?? []} provider={product?.provider} />
+      <HistoricalSpendPanel months={historyMonths} provider={product?.provider} />
+
+      <div className="flex flex-wrap items-center gap-3">
+        <Button
+          component={Link}
+          href={`/public-cloud/products/${licencePlate}/costs/history`}
+          variant="light"
+          disabled={!historyMonths.length}
+        >
+          View full spend history
+        </Button>
+      </div>
 
       {canViewAccountability && (
         <div className="flex flex-wrap items-center gap-4">
-          <ExportButton downloadUrl={`/api/public-cloud/products/${licencePlate}/accountability/export`} />
+          <ExportButton downloadUrl={`/api/public-cloud/products/${licencePlate}/accountability/export?format=xlsx`} />
           <p className="text-sm text-gray-600">
             Forecasts, alerts, and quarterly review are on the{' '}
             <Link href={`/public-cloud/products/${licencePlate}/edit`} className="underline text-blue-600 font-medium">

@@ -25,6 +25,7 @@ export const POST = createApiHandler({
         reminderPolicy: active.reminderPolicy,
         monthlyRecapDayOfMonth: active.monthlyRecapDayOfMonth,
         projectionMethod: active.projectionMethod,
+        notificationRouting: active.notificationRouting ?? DEFAULT_CLOUD_COST_RULES.notificationRouting,
       });
 
   const preview = previewCloudCostRules(

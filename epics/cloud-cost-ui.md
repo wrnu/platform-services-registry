@@ -2,7 +2,7 @@
 
 UI routes and components for the [Cloud Cost Accountability epic](./cloud-cost.md).
 
-**Status:** MVP implemented on accountability branch. Partial gaps tracked in [Jira backlog mapping](./cloud-cost-jira-backlog.md) (CR-2, CR-40, CR-41/42, CR-24).
+**Status:** Jira CR-1–CR-42 complete on accountability branch (CR-28 MoU deferred). See [Jira backlog mapping](./cloud-cost-jira-backlog.md).
 
 ## Navigation (implemented)
 
@@ -10,23 +10,24 @@ UI routes and components for the [Cloud Cost Accountability epic](./cloud-cost.m
 
 `COSTS` tab on the Public Cloud product layout (`app/app/public-cloud/products/(product)/[licencePlate]/layout.tsx`). Spend accountability (forecasts, alerts, quarterly review) lives on the **PRODUCT** tab under **Project budget and spend forecast**.
 
-| Tab                                        | Route                                         |
-| ------------------------------------------ | --------------------------------------------- |
-| PRODUCT (includes budget & accountability) | `/public-cloud/products/[licencePlate]/edit`  |
-| COSTS                                      | `/public-cloud/products/[licencePlate]/costs` |
+| Tab                                        | Route                                                 |
+| ------------------------------------------ | ----------------------------------------------------- |
+| PRODUCT (includes budget & accountability) | `/public-cloud/products/[licencePlate]/edit`          |
+| COSTS                                      | `/public-cloud/products/[licencePlate]/costs`         |
+| Historical spend                           | `/public-cloud/products/[licencePlate]/costs/history` |
 
 Legacy `/accountability` URLs redirect to `/edit`.
 
 ### Admin navigation
 
-| Route                                     | Purpose                                        | Jira  | Status  |
-| ----------------------------------------- | ---------------------------------------------- | ----- | ------- |
-| `/public-cloud/accountability/all`        | Cross-project governance dashboard (Story 6.2) | CR-23 | Done    |
-| `/public-cloud/accountability/compliance` | Escalation list (`onEscalationList`)           | CR-24 | Partial |
-| `/public-cloud/accountability/director`   | Projects needing action (Story 6.3)            | —     | Done    |
-| `/public-cloud/accountability/executive`  | Portfolio summary (Story 6.4)                  | —     | Done    |
-| `/public-cloud/accountability/audit`      | Notification audit log (Story 7.5)             | —     | Done    |
-| `/admin/public-cloud/cost-rules`          | Rules configuration (RC.1–RC.3)                | CR-39 | Done    |
+| Route                                     | Purpose                                        | Jira  | Status |
+| ----------------------------------------- | ---------------------------------------------- | ----- | ------ |
+| `/public-cloud/accountability/all`        | Cross-project governance dashboard (Story 6.2) | CR-23 | Done   |
+| `/public-cloud/accountability/compliance` | Escalation list (`onEscalationList`)           | CR-24 | Done   |
+| `/public-cloud/accountability/director`   | Projects needing action (Story 6.3)            | —     | Done   |
+| `/public-cloud/accountability/executive`  | Portfolio summary (Story 6.4)                  | —     | Done   |
+| `/public-cloud/accountability/audit`      | Notification audit log (Story 7.5)             | —     | Done   |
+| `/admin/public-cloud/cost-rules`          | Rules configuration (RC.1–RC.3)                | CR-39 | Done   |
 
 ---
 
@@ -106,7 +107,7 @@ Component: `AccountabilityAuditHistory.tsx` — tabs for forecast versions, aler
 **Route:** `/public-cloud/products/[licencePlate]/costs`
 **Page:** `costs/page.tsx`
 
-Current-month spend panel, historical spend table, CSV export button. Page title still generic (**CR-2** partial).
+Current-month spend panel, historical summary, link to full history route, Excel export. Page title uses provider spend label (CR-2).
 
 ---
 
@@ -125,7 +126,7 @@ Current-month spend panel, historical spend table, CSV export button. Page title
 | Current month variance % |                                     |
 | Escalation flag          | `onEscalationList`                  |
 
-Features: filter panel, pagination, bundled CSV export (CR-42 partial — CSV not Excel).
+Features: filter panel, pagination, bundled Excel export (CR-42; CSV via API `format=csv`).
 
 ---
 

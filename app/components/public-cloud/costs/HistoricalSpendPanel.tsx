@@ -13,11 +13,21 @@ type ClosedMonth = {
   variancePercent?: number | null;
 };
 
-export default function HistoricalSpendPanel({ months, provider }: { months: ClosedMonth[]; provider?: string }) {
+export default function HistoricalSpendPanel({
+  months,
+  provider,
+  title = 'Historical spend',
+  showInceptionSummary = false,
+}: {
+  months: ClosedMonth[];
+  provider?: string;
+  title?: string;
+  showInceptionSummary?: boolean;
+}) {
   if (!months.length) {
     return (
       <div>
-        <h3 className="font-bold text-xl mb-2">Historical spend</h3>
+        <h3 className="font-bold text-xl mb-2">{title}</h3>
         <p className="text-gray-600">No closed-month spend history from CSP yet.</p>
       </div>
     );
@@ -27,12 +37,21 @@ export default function HistoricalSpendPanel({ months, provider }: { months: Clo
   const currency = sortedMonths[0]?.currency ?? 'USD';
   const totalActual = sortedMonths.reduce((sum, m) => sum + m.actualTotal, 0);
   const totalForecast = sortedMonths.reduce((sum, m) => sum + (m.forecastTotal ?? 0), 0);
+  const firstMonth = sortedMonths[0];
+  const lastMonth = sortedMonths[sortedMonths.length - 1];
 
   return (
     <div>
-      <h3 className="font-bold text-xl mb-2">Historical spend</h3>
+      <h3 className="font-bold text-xl mb-2">{title}</h3>
       <p className="text-sm text-gray-600 mb-4">
-        Closed-month actuals from {provider ?? 'CSP'} since project inception. Current-month spend is shown above.
+        {showInceptionSummary
+          ? `Closed-month actuals from ${provider ?? 'CSP'} (${firstMonth.year}-${String(firstMonth.month).padStart(
+              2,
+              '0',
+            )} through ${lastMonth.year}-${String(lastMonth.month).padStart(2, '0')}).`
+          : `Closed-month actuals from ${
+              provider ?? 'CSP'
+            } since project inception. Current-month spend is on the Costs tab.`}
       </p>
       <div className="mb-4 inline-flex py-3 px-5 bg-zinc-100 border border-gray-300 rounded-md text-sm">
         <strong>Total actual:&nbsp;</strong>

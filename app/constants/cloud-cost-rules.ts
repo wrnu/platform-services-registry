@@ -5,9 +5,20 @@ import {
   CloudCostForecastPolicy,
   CloudCostQuarterlyReviewPolicy,
   CloudCostReminderPolicy,
+  CloudCostNotificationRouting,
   CloudCostVarianceThresholds,
   ProjectionMethod,
 } from '@/prisma/client';
+
+export const DEFAULT_NOTIFICATION_ROUTING = {
+  a1AdminEmails: [] as string[],
+  a2AdminEmails: [] as string[],
+  a3AdminEmails: [] as string[],
+  escalationEmails: [] as string[],
+  monthlyRecapEmails: [] as string[],
+  nonComplianceEmails: [] as string[],
+  escalationListEmails: [] as string[],
+};
 
 export const DEFAULT_CLOUD_COST_RULES = {
   varianceThresholds: {
@@ -27,6 +38,7 @@ export const DEFAULT_CLOUD_COST_RULES = {
   reminderPolicy: { weeklyUntilSignOff: true, escalateAtMPlusOne: true },
   monthlyRecapDayOfMonth: 1,
   projectionMethod: ProjectionMethod.LINEAR_EXTRAPOLATION,
+  notificationRouting: DEFAULT_NOTIFICATION_ROUTING,
 };
 
 export type CloudCostRulesConfigData = {
@@ -38,6 +50,7 @@ export type CloudCostRulesConfigData = {
   reminderPolicy: CloudCostReminderPolicy;
   monthlyRecapDayOfMonth: number;
   projectionMethod: ProjectionMethod;
+  notificationRouting: CloudCostNotificationRouting;
 };
 
 export function evaluateVarianceAlertLevel(

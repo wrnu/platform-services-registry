@@ -3,6 +3,7 @@ import { QuarterlyReviewStatus, ProjectStatus } from '@/prisma/client';
 import {
   sendMonthlyAccountabilityRecapEmail,
   sendNonComplianceSummaryEmail,
+  sendEscalationListSummaryEmail,
   sendQuarterlyEscalationEmail,
   sendQuarterlyForecastReminderEmail,
   sendWeeklySignOffReminderEmail,
@@ -47,6 +48,7 @@ export async function runQuarterlyReminderJob() {
   }
 
   await sendNonComplianceSummaryEmail();
+  await sendEscalationListSummaryEmail();
 
   return { sent };
 }
@@ -133,6 +135,8 @@ export async function runMPlusOneEscalationJob() {
     escalated += 1;
     emailsSent += 1;
   }
+
+  await sendEscalationListSummaryEmail();
 
   return { escalated, emailsSent };
 }

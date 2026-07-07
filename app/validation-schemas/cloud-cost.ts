@@ -140,9 +140,15 @@ export type AccountabilityNotificationSearchBody = z.infer<typeof accountability
 
 export const accountabilityExportBodySchema = z.object({
   provider: z.nativeEnum(Provider).optional(),
+  format: z.enum(['csv', 'xlsx']).optional().default('xlsx'),
+});
+
+export const accountabilityExportQuerySchema = z.object({
+  format: z.enum(['csv', 'xlsx']).optional().default('xlsx'),
 });
 
 export type AccountabilityExportBody = z.infer<typeof accountabilityExportBodySchema>;
+export type AccountabilityExportQuery = z.infer<typeof accountabilityExportQuerySchema>;
 
 const varianceThresholdTierSchema = z.object({
   percentAbove: z.number().optional(),
@@ -181,6 +187,17 @@ export const cloudCostRulesConfigBodySchema = z.object({
   }),
   monthlyRecapDayOfMonth: z.number().int().min(1).max(28),
   projectionMethod: z.nativeEnum(ProjectionMethod).optional(),
+  notificationRouting: z
+    .object({
+      a1AdminEmails: z.array(z.string()).default([]),
+      a2AdminEmails: z.array(z.string()).default([]),
+      a3AdminEmails: z.array(z.string()).default([]),
+      escalationEmails: z.array(z.string()).default([]),
+      monthlyRecapEmails: z.array(z.string()).default([]),
+      nonComplianceEmails: z.array(z.string()).default([]),
+      escalationListEmails: z.array(z.string()).default([]),
+    })
+    .optional(),
 });
 
 export const cloudCostRulesPreviewBodySchema = z.object({

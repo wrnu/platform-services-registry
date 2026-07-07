@@ -1,9 +1,10 @@
 import { z } from 'zod';
 import { GlobalRole } from '@/constants';
 import createApiHandler from '@/core/api-handler';
-import { CsvResponse, NoContent, UnauthorizedResponse } from '@/core/responses';
+import { accountabilityExportResponse, NoContent, UnauthorizedResponse } from '@/core/responses';
 import { models } from '@/services/db';
 import { buildProjectAccountabilityExportRows } from '@/services/db/public-cloud-accountability';
+import { accountabilityExportQuerySchema } from '@/validation-schemas/cloud-cost';
 
 const pathParamSchema = z.object({
   licencePlate: z.string(),
@@ -11,9 +12,13 @@ const pathParamSchema = z.object({
 
 export const GET = createApiHandler({
   roles: [GlobalRole.User],
-  validations: { pathParams: pathParamSchema },
-})(async ({ pathParams, session }) => {
+  validations: {
+    pathParams: pathParamSchema,
+    queryParams: accountabilityExportQuerySchema,
+  },
+})(async ({ pathParams, queryParams, session }) => {
   const { licencePlate } = pathParams;
+  const { format } = queryParams;
 
   const { data: product } = await models.publicCloudProduct.get({ where: { licencePlate } }, session);
   if (!product?._permissions.viewAccountability) {
@@ -25,5 +30,5 @@ export const GET = createApiHandler({
     return NoContent();
   }
 
-  return CsvResponse(rows, `${licencePlate}-accountability.csv`);
+  return accountabilityExportResponse(rows, `${licencePlate}-accountability`, format);
 });

@@ -88,12 +88,13 @@ export async function searchPublicCloudAccountability(data: Record<string, unkno
   return adminInstance.post('/search', reqData).then((res) => res.data);
 }
 
-export async function downloadBundledAccountabilityExport(provider?: string) {
-  const result = await adminInstance.post('/export', { provider }, { responseType: 'blob' }).then((res) => {
+export async function downloadBundledAccountabilityExport(provider?: string, format: 'csv' | 'xlsx' = 'xlsx') {
+  const result = await adminInstance.post('/export', { provider, format }, { responseType: 'blob' }).then((res) => {
     if (res.status === 204) return false;
 
     const suffix = provider ? provider.toLowerCase() : 'all';
-    downloadFile(res.data, `public-cloud-accountability-${suffix}.csv`);
+    const ext = format === 'csv' ? 'csv' : 'xlsx';
+    downloadFile(res.data, `public-cloud-accountability-${suffix}.${ext}`, res.headers);
     return true;
   });
 

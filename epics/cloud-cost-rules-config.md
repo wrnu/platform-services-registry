@@ -196,17 +196,19 @@ Only one config version should be **active** at a time. Historical evaluations s
 
 Project team recipients (PO, Technical Lead) are resolved from the product record — no policy gap there.
 
-**Current implementation (interim)**
+**Current implementation:** Configurable on `/admin/public-cloud/cost-rules` under **Notification routing**. Each scenario accepts comma-separated emails; when empty, Keycloak global roles are used (see interim mapping below).
 
-Hardcoded in `app/services/ches/public-cloud/accountability-emails.ts` via Keycloak **global roles**, not whiteboard role names:
+| Email           | Cost-rules field       | Keycloak fallback (when field empty)                      |
+| --------------- | ---------------------- | --------------------------------------------------------- |
+| A1 admin        | `a1AdminEmails`        | `admin`, `public-admin`                                   |
+| A2 admin        | `a2AdminEmails`        | above + `billing-reviewer` (proxy for Cloud PO)           |
+| A3 admin        | `a3AdminEmails`        | above + `billing-manager` (proxy for directors / finance) |
+| M+1 escalation  | `escalationEmails`     | `public-admin`, `billing-manager`, `billing-reviewer`     |
+| Monthly recap   | `monthlyRecapEmails`   | `public-admin`, `billing-reviewer`, `billing-manager`     |
+| Non-compliance  | `nonComplianceEmails`  | `public-admin`, `admin`                                   |
+| Escalation list | `escalationListEmails` | `public-admin`, `admin`                                   |
 
-| Email          | Current Keycloak roles                                    |
-| -------------- | --------------------------------------------------------- |
-| A1 admin       | `admin`, `public-admin`                                   |
-| A2 admin       | above + `billing-reviewer` (proxy for Cloud PO)           |
-| A3 admin       | above + `billing-manager` (proxy for directors / finance) |
-| M+1 escalation | `public-admin`, `billing-manager`, `billing-reviewer`     |
-| Monthly recap  | `public-admin`, `billing-manager`, `billing-reviewer`     |
+Previously hardcoded in `app/services/ches/public-cloud/accountability-emails.ts` via Keycloak **global roles**:
 
 `publicCloudTeamEmail` is CC’d in prod on several admin emails. `CloudCostRulesConfig` has **no** `notificationRouting` field in Prisma (only sketched in the data model section above).
 

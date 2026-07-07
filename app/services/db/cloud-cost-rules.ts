@@ -1,6 +1,7 @@
 import {
   CloudCostRulesConfigData,
   DEFAULT_CLOUD_COST_RULES,
+  DEFAULT_NOTIFICATION_ROUTING,
   previewRuleEvaluation,
   RulePreviewInput,
 } from '@/constants/cloud-cost-rules';
@@ -18,6 +19,7 @@ export function toCloudCostRulesConfigData(body: CloudCostRulesConfigBody): Clou
     reminderPolicy: body.reminderPolicy,
     monthlyRecapDayOfMonth: body.monthlyRecapDayOfMonth,
     projectionMethod: (body.projectionMethod ?? ProjectionMethod.LINEAR_EXTRAPOLATION) as ProjectionMethod,
+    notificationRouting: body.notificationRouting ?? DEFAULT_NOTIFICATION_ROUTING,
   };
 }
 
@@ -72,6 +74,7 @@ export async function createCloudCostRulesConfig(body: CloudCostRulesConfigBody,
       reminderPolicy: normalized.reminderPolicy,
       monthlyRecapDayOfMonth: normalized.monthlyRecapDayOfMonth,
       projectionMethod: normalized.projectionMethod,
+      notificationRouting: normalized.notificationRouting,
       createdById: userId,
     },
   });

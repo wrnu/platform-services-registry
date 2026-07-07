@@ -51,9 +51,13 @@ export default function ExportButton({
             setIsLoading(false);
           } else if (downloadUrl) {
             setIsLoading(true);
+            const defaultName = downloadUrl.includes('format=csv') ? 'data.csv' : 'data.xlsx';
             const success = await instance.get(downloadUrl, { responseType: 'blob' }).then((res) => {
               if (res.status === 204) return false;
-              downloadFile(res.data, 'data.csv', res.headers);
+              const disposition = res.headers?.['content-disposition'] as string | undefined;
+              const match = disposition?.match(/filename=([^;]+)/);
+              const filename = match?.[1]?.trim() ?? defaultName;
+              downloadFile(res.data, filename, res.headers);
               return true;
             });
 

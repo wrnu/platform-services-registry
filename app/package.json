@@ -98,6 +98,7 @@
     "tw-to-css": "^0.0.12",
     "valtio": "^2.1.5",
     "winston": "^3.17.0",
+    "xlsx": "^0.18.5",
     "zod": "^4.0.15"
   },
   "devDependencies": {

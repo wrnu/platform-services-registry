@@ -1,10 +1,10 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Badge, Button, NumberInput, Table } from '@mantine/core';
+import { Badge, Button, NumberInput, Table, Textarea } from '@mantine/core';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
-import { FormProvider, useForm } from 'react-hook-form';
+import { Controller, FormProvider, useForm } from 'react-hook-form';
 import FormErrorNotification from '@/components/generic/FormErrorNotification';
 import HookFormTextInput from '@/components/generic/input/HookFormTextInput';
 import LoadingBox from '@/components/generic/LoadingBox';
@@ -17,6 +17,7 @@ import {
   getCloudCostRulesConfig,
   previewCloudCostRules,
 } from '@/services/backend/admin/public-cloud-cost-rules';
+import { parseEmailList } from '@/utils/notification-routing';
 import { CloudCostRulesConfigBody, cloudCostRulesConfigBodySchema } from '@/validation-schemas';
 
 const CostRulesPage = createClientPage({
@@ -33,6 +34,7 @@ function mapActiveToForm(active: CloudCostRulesConfigBody): CloudCostRulesConfig
     reminderPolicy: active.reminderPolicy,
     monthlyRecapDayOfMonth: active.monthlyRecapDayOfMonth,
     projectionMethod: active.projectionMethod,
+    notificationRouting: active.notificationRouting ?? DEFAULT_CLOUD_COST_RULES.notificationRouting,
   };
 }
 
@@ -187,6 +189,45 @@ export default CostRulesPage(({ session }) => {
                 >
                   <HookFormTextInput name="monthlyRecapDayOfMonth" label="Day of month" />
                 </RuleGroup>
+              </div>
+            </section>
+
+            <section className="space-y-4">
+              <div>
+                <h2 className="font-semibold">Notification routing</h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  Override admin email recipients per scenario. Leave blank to use Keycloak global roles (admin,
+                  public-admin, billing-reviewer, billing-manager).
+                </p>
+              </div>
+              <div className="space-y-3">
+                {(
+                  [
+                    ['a1AdminEmails', 'A1 admin alerts'],
+                    ['a2AdminEmails', 'A2 admin alerts (incl. Cloud PO)'],
+                    ['a3AdminEmails', 'A3 admin alerts (incl. directors / finance)'],
+                    ['escalationEmails', 'M+1 quarterly escalation'],
+                    ['monthlyRecapEmails', 'Monthly accountability recap'],
+                    ['nonComplianceEmails', 'Non-compliance summary'],
+                    ['escalationListEmails', 'Escalation list alert'],
+                  ] as const
+                ).map(([field, label]) => (
+                  <Controller
+                    key={field}
+                    name={`notificationRouting.${field}`}
+                    control={methods.control}
+                    render={({ field: routingField }) => (
+                      <Textarea
+                        label={label}
+                        description="Comma-separated email addresses"
+                        minRows={1}
+                        disabled={!canEdit}
+                        value={Array.isArray(routingField.value) ? routingField.value.join(', ') : ''}
+                        onChange={(e) => routingField.onChange(parseEmailList(e.currentTarget.value))}
+                      />
+                    )}
+                  />
+                ))}
               </div>
             </section>
 

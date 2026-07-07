@@ -1,6 +1,6 @@
 import { GlobalPermissions } from '@/constants';
 import createApiHandler from '@/core/api-handler';
-import { CsvResponse, NoContent } from '@/core/responses';
+import { accountabilityExportResponse, NoContent } from '@/core/responses';
 import { buildBundledAccountabilityExportRows } from '@/services/db/public-cloud-accountability';
 import { accountabilityExportBodySchema } from '@/validation-schemas/cloud-cost';
 
@@ -14,5 +14,6 @@ export const POST = createApiHandler({
   }
 
   const suffix = body.provider ? body.provider.toLowerCase() : 'all';
-  return CsvResponse(rows, `public-cloud-accountability-${suffix}.csv`);
+  const format = body.format ?? 'xlsx';
+  return accountabilityExportResponse(rows, `public-cloud-accountability-${suffix}`, format);
 });
