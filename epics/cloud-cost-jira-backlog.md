@@ -108,13 +108,13 @@ Tracks [Cloud Cost Accountability](./cloud-cost.md) work against the **Cloud Reg
 
 ## Cross-walk: internal stories (not in Jira CSV)
 
-| Internal         | Impl.    | Notes                                           |
-| ---------------- | -------- | ----------------------------------------------- |
-| Story 1.5 reject | **Done** | API + UI                                        |
-| Scenario 10      | **Done** | `ForecastSubmitted` email                       |
-| Stories 6.3–6.4  | **Done** | Director / executive dashboards                 |
-| Stories 7.1–7.5  | **Done** | Product audit tabs + `/accountability/audit`    |
-| Production jobs  | **Done** | Airflow DAGs unpaused on create (dev/test/prod) |
+| Internal         | Impl.    | Notes                                                                        |
+| ---------------- | -------- | ---------------------------------------------------------------------------- |
+| Story 1.5 reject | **Done** | API + UI                                                                     |
+| Scenario 10      | **Done** | `ForecastSubmitted` email                                                    |
+| Stories 6.3–6.4  | **Done** | Director / executive dashboards                                              |
+| Stories 7.1–7.5  | **Done** | Product audit tabs + `/accountability/audit`                                 |
+| Production jobs  | **Done** | Unpause accountability DAGs manually in Airflow after deploy (dev/test/prod) |
 
 ---
 

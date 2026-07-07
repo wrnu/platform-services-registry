@@ -620,9 +620,9 @@ Track progress here (no separate GitHub issues). **Jira keys (CR-1–CR-42)** ar
 | Notification audit               | Done     | 7.5          | `AccountabilityNotificationLog`; `/public-cloud/accountability/audit`                                                               |
 | Audit history UI                 | Done     | 7.1–7.4      | `AccountabilityAuditHistory` on product tab + notification audit page                                                               |
 | Export                           | Done     | CR-41–CR-42  | Excel (default) + CSV via `format` param                                                                                            |
-| Scheduled accountability jobs    | Done     | CR-19–CR-21  | Airflow DAGs enabled on create → `POST /api/internal/accountability/jobs`                                                           |
+| Scheduled accountability jobs    | Done     | CR-19–CR-21  | Airflow DAGs deployed; unpause manually in Airflow UI → `POST /api/internal/accountability/jobs`                                    |
 | API tests                        | Done     | —            | `app/api/public-cloud/accountability.test.ts`                                                                                       |
-| Production deploy                | Done     | —            | Airflow DAGs unpaused on create (dev/test/prod); CSP + CHES per environment                                                         |
+| Production deploy                | Done     | —            | Unpause accountability DAGs manually in Airflow (dev/test/prod); CSP + CHES per environment                                         |
 | Admin notification routing       | Done     | CR-22, CR-36 | `notificationRouting` on cost-rules admin UI; Keycloak fallback when lists empty                                                    |
 | MoU limited access enforcement   | Deferred | CR-28        | MoU allows it; **not** implemented in Registry — manual ops only if needed                                                          |
 
