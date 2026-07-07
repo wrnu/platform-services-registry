@@ -1,8 +1,11 @@
 import {
   buildFiscalForecastMonths,
   FISCAL_FORECAST_YEARS,
+  mergeMonthlyValuesOntoFiscalHorizon,
+  monthKey,
   preserveLockedPastMonthlyValues,
   isForecastHorizonComplete,
+  type MonthlyValue,
 } from '@/components/public-cloud/accountability/forecast-grid-utils';
 import prisma from '@/core/prisma';
 import { getCurrentBillingPeriod, getCurrentQuarter, getMPlusOneDate } from '@/helpers/accountability-periods';
@@ -29,6 +32,96 @@ export async function getActiveApprovedForecast(licencePlate: string) {
     orderBy: { version: 'desc' },
   });
 }
+
+const PROVIDER_FORECAST_CURRENCY: Record<Provider, 'USD' | 'CAD'> = {
+  [Provider.AWS]: 'USD',
+  [Provider.AWS_LZA]: 'USD',
+  [Provider.AZURE]: 'CAD',
+};
+
+/**
+ * Platform-wide forecast rollup for the governance dashboard: sums the latest
+ * approved forecast of every active public cloud product per month. AWS
+ * forecasts are USD and Azure forecasts are CAD, so totals are grouped by
+ * currency rather than combined into a single (meaningless) number.
+ */
+export async function getPlatformForecastSummary() {
+  const products = await prisma.publicCloudProduct.findMany({
+    where: { status: ProjectStatus.ACTIVE },
+    select: { licencePlate: true, provider: true },
+  });
+
+  const approvedForecasts = await prisma.cloudCostForecast.findMany({
+    where: {
+      licencePlate: { in: products.map((p) => p.licencePlate) },
+      status: CloudCostForecastStatus.APPROVED,
+    },
+    orderBy: { version: 'desc' },
+    select: { licencePlate: true, monthlyValues: true },
+  });
+
+  // Ordered by version desc, so the first forecast seen per plate is the active one.
+  const activeForecastByPlate = new Map<string, MonthlyValue[]>();
+  for (const forecast of approvedForecasts) {
+    if (!activeForecastByPlate.has(forecast.licencePlate)) {
+      activeForecastByPlate.set(forecast.licencePlate, forecast.monthlyValues as MonthlyValue[]);
+    }
+  }
+
+  type CurrencyGroup = {
+    currency: 'USD' | 'CAD';
+    providers: Set<Provider>;
+    productCount: number;
+    forecastCount: number;
+    totalsByMonth: Map<string, MonthlyValue>;
+  };
+  const groups = new Map<'USD' | 'CAD', CurrencyGroup>();
+
+  for (const product of products) {
+    const currency = PROVIDER_FORECAST_CURRENCY[product.provider];
+    let group = groups.get(currency);
+    if (!group) {
+      group = { currency, providers: new Set(), productCount: 0, forecastCount: 0, totalsByMonth: new Map() };
+      groups.set(currency, group);
+    }
+    group.providers.add(product.provider);
+    group.productCount += 1;
+
+    const monthlyValues = activeForecastByPlate.get(product.licencePlate);
+    if (!monthlyValues) continue;
+    group.forecastCount += 1;
+
+    for (const value of monthlyValues) {
+      const key = monthKey(value.year, value.month);
+      const existing = group.totalsByMonth.get(key);
+      if (existing) {
+        existing.amount += value.amount;
+      } else {
+        group.totalsByMonth.set(key, { year: value.year, month: value.month, amount: value.amount, currency });
+      }
+    }
+  }
+
+  return {
+    totalProducts: products.length,
+    productsWithForecast: activeForecastByPlate.size,
+    groups: [...groups.values()]
+      .sort((a, b) => a.currency.localeCompare(b.currency))
+      .map((group) => ({
+        currency: group.currency,
+        providers: [...group.providers].sort(),
+        productCount: group.productCount,
+        forecastCount: group.forecastCount,
+        monthlyTotals: mergeMonthlyValuesOntoFiscalHorizon(
+          [...group.totalsByMonth.values()],
+          FISCAL_FORECAST_YEARS,
+          group.currency,
+        ),
+      })),
+  };
+}
+
+export type PlatformForecastSummary = Awaited<ReturnType<typeof getPlatformForecastSummary>>;
 
 export function getForecastAmountForMonth(
   forecast: { monthlyValues: { year: number; month: number; amount: number }[] } | null,

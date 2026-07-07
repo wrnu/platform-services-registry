@@ -2,6 +2,7 @@ import { POST as _postAccountabilityJob } from '@/app/api/internal/accountabilit
 import { POST as _postCspAlert } from '@/app/api/internal/csp/alerts/route';
 import { PUT as _putCspConsumptionHistory } from '@/app/api/internal/csp/consumption/history/route';
 import { PUT as _putCspConsumption } from '@/app/api/internal/csp/consumption/route';
+import { GET as _getPlatformForecast } from '@/app/api/public-cloud/accountability/forecast/route';
 import { GET as _getAccountability } from '@/app/api/public-cloud/products/[licencePlate]/accountability/route';
 import { POST as _acknowledgeAlert } from '@/app/api/public-cloud/products/[licencePlate]/alerts/[alertId]/acknowledge/route';
 import { POST as _resolveAlert } from '@/app/api/public-cloud/products/[licencePlate]/alerts/[alertId]/resolve/route';
@@ -27,7 +28,12 @@ import { getServiceAccountAuthHeader } from '@/helpers/mock-resources';
 import { createRoute } from '../core';
 
 const productRoute = createRoute('/public-cloud/products');
+const accountabilityRoute = createRoute('/public-cloud/accountability');
 const internalRoute = createRoute('/internal');
+
+export async function getPublicCloudPlatformForecast() {
+  return accountabilityRoute.get(_getPlatformForecast, '/forecast');
+}
 
 function serviceAccountHeaders() {
   return getServiceAccountAuthHeader();

@@ -104,3 +104,7 @@ export async function downloadBundledAccountabilityExport(provider?: string, for
 export async function searchAccountabilityNotifications(data: Record<string, unknown>) {
   return adminInstance.post('/notifications/search', data).then((res) => res.data);
 }
+
+export async function getPlatformForecast() {
+  return adminInstance.get('/forecast').then((res) => res.data);
+}

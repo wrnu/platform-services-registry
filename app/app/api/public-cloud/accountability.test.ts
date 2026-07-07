@@ -14,6 +14,7 @@ import {
   createPublicCloudForecast,
   getPublicCloudAccountability,
   getPublicCloudCosts,
+  getPublicCloudPlatformForecast,
   getPublicCloudQuarterlyReview,
   listPublicCloudForecasts,
   postAccountabilityJob,
@@ -144,7 +145,8 @@ describe('Public Cloud accountability APIs', () => {
     });
 
     it('rejects CSP ingest without service account', async () => {
-      await mockSessionByRole(GlobalRole.User);
+      // A regular user session (not a service account) must not be able to ingest CSP data.
+      await mockSessionByRole(GlobalRole.PublicReviewer);
       const response = await putCspConsumption(buildCspSnapshotPayload(licencePlate, provider, currency));
       expect(response.status).toBe(401);
     });
@@ -286,6 +288,36 @@ describe('Public Cloud accountability APIs', () => {
       expect(response.status).toBe(200);
       const review = await response.json();
       expect(review.licencePlate).toBe(licencePlate);
+    });
+  });
+
+  describe('Platform forecast dashboard (admin)', () => {
+    it('rolls up approved forecasts across the platform per currency', async () => {
+      await mockSessionByRole(GlobalRole.BillingReviewer);
+
+      const response = await getPublicCloudPlatformForecast();
+      expect(response.status).toBe(200);
+
+      const summary = await response.json();
+      expect(summary.totalProducts).toBeGreaterThanOrEqual(1);
+      expect(summary.productsWithForecast).toBeGreaterThanOrEqual(1);
+
+      const group = summary.groups.find((g: { currency: string }) => g.currency === currency);
+      expect(group).toBeTruthy();
+      expect(group.forecastCount).toBeGreaterThanOrEqual(1);
+
+      // The approved forecast from the earlier test sets all current/future months to 6000.
+      const now = new Date();
+      const currentMonth = group.monthlyTotals.find(
+        (v: { year: number; month: number }) => v.year === now.getFullYear() && v.month === now.getMonth() + 1,
+      );
+      expect(currentMonth?.amount).toBe(6000);
+    });
+
+    it('rejects users without accountability access', async () => {
+      await mockSessionByRole(GlobalRole.PrivateReader);
+      const response = await getPublicCloudPlatformForecast();
+      expect(response.status).toBe(401);
     });
   });
 

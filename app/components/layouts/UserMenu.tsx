@@ -131,6 +131,12 @@ export default function UserMenu() {
       permission: 'viewPublicCloudAccountability',
     },
     {
+      text: 'Platform Forecast',
+      Icon: IconClockDollar,
+      href: '/public-cloud/accountability/forecast',
+      permission: 'viewPublicCloudAccountability',
+    },
+    {
       text: 'Accountability — Audit',
       Icon: IconSignLeft,
       href: '/public-cloud/accountability/audit',
