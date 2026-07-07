@@ -32,8 +32,13 @@ function SummaryCard({ label, value, hint }: { label: string; value: string; hin
 }
 
 function formatVariance(variance: number, currency: string) {
-  const sign = variance > 0 ? '+' : variance < 0 ? '−' : '';
-  return `${sign}${formatForecastAmount(Math.abs(variance), currency)}`;
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+    signDisplay: 'exceptZero',
+  }).format(variance);
 }
 
 function varianceClass(variance: number) {
@@ -159,7 +164,7 @@ function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['group
                         return (
                           <td
                             key={monthKey(v.year, v.month)}
-                            className={`px-2 py-2 text-center ${
+                            className={`px-2 py-2 text-center whitespace-nowrap ${
                               variance != null ? varianceClass(variance) : 'text-gray-400'
                             }`}
                           >
@@ -168,7 +173,7 @@ function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['group
                         );
                       })}
                       <td
-                        className={`px-3 py-2 text-center font-semibold ${
+                        className={`px-3 py-2 text-center font-semibold whitespace-nowrap ${
                           chunkHasActuals ? varianceClass(chunkVarianceTotal) : 'text-gray-400'
                         }`}
                       >
