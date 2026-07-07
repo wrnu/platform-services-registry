@@ -405,16 +405,16 @@ Product-scoped actions use `_permissions` on the decorated product (e.g. `viewAc
 
 ## Implementation phases
 
-| Phase                | Deliverable                                     | Status                                 | Jira     |
-| -------------------- | ----------------------------------------------- | -------------------------------------- | -------- |
-| 1 — Rules config     | `CloudCostRulesConfig` + admin UI               | Done                                   | CR-39    |
-| 2 — Forecast CRUD    | Draft, version, submit, approve, reject         | Done                                   | CR-15–18 |
-| 3 — CSP ingest       | Accept shapes above; persist snapshots          | Done                                   | CR-29    |
-| 4 — Alerts + notify  | Accept `CspConsumptionAlert`; CHES templates    | Done                                   | CR-32–39 |
-| 5 — Quarterly review | PO workflow + `CspConsumptionHistory` lookback  | Done                                   | CR-19–27 |
-| 6 — Dashboards       | Owner tab, costs page, admin + governance views | Done                                   | CR-23    |
-| 7 — Audit            | Notification log + product audit tabs           | Partial — no standalone auditor portal | 7.1–7.5  |
-| 8 — Export           | Project + bundled CSV                           | Partial — not Excel                    | CR-41–42 |
+| Phase                | Deliverable                                                     | Status | Jira     |
+| -------------------- | --------------------------------------------------------------- | ------ | -------- |
+| 1 — Rules config     | `CloudCostRulesConfig` + admin UI                               | Done   | CR-39    |
+| 2 — Forecast CRUD    | Draft, version, submit, approve, reject                         | Done   | CR-15–18 |
+| 3 — CSP ingest       | Accept shapes above; persist snapshots                          | Done   | CR-29    |
+| 4 — Alerts + notify  | Accept `CspConsumptionAlert`; CHES templates                    | Done   | CR-32–39 |
+| 5 — Quarterly review | PO workflow + `CspConsumptionHistory` lookback                  | Done   | CR-19–27 |
+| 6 — Dashboards       | Owner tab, costs page, admin + governance views                 | Done   | CR-23    |
+| 7 — Audit            | Notification log + product audit tabs + `/accountability/audit` | Done   | 7.1–7.5  |
+| 8 — Export           | Project + bundled Excel (default) and CSV                       | Done   | CR-41–42 |
 
 ---
 

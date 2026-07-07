@@ -98,7 +98,7 @@ Component: `AccountabilityAuditHistory.tsx` — tabs for forecast versions, aler
 
 ### Spend history
 
-`HistoricalSpendPanel.tsx` on costs tab (CR-40 partial — not a standalone route).
+`HistoricalSpendPanel.tsx` on the costs tab (summary) and dedicated route `/costs/history` (CR-40).
 
 ---
 
