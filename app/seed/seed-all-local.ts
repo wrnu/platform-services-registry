@@ -4,7 +4,12 @@
  */
 import prisma from '../core/prisma';
 import { seedAccountabilityForProduct } from './seed-accountability-local';
-import { AZURE_DEMO_PLATE, seedAzurePublicCloudProduct } from './seed-azure-product';
+import {
+  AWS_DEMO_PLATE,
+  AZURE_DEMO_PLATE,
+  seedAwsPublicCloudProduct,
+  seedAzurePublicCloudProduct,
+} from './seed-azure-product';
 import { seedFoundation } from './seed-foundation';
 
 async function main() {
@@ -18,15 +23,23 @@ async function main() {
   console.log('\n2. Azure public cloud product...');
   await seedAzurePublicCloudProduct();
 
-  console.log('\n3. Accountability demo data (CSP, forecast, alerts)...');
+  console.log('\n3. AWS public cloud product...');
+  await seedAwsPublicCloudProduct();
+
+  console.log('\n4. Accountability demo data (CSP, forecast, alerts)...');
   await seedAccountabilityForProduct(AZURE_DEMO_PLATE, {
     reset,
     showWalkthrough: true,
   });
 
+  console.log('\n5. Accountability demo data for AWS product...');
+  await seedAccountabilityForProduct(AWS_DEMO_PLATE, { reset });
+
   console.log('\n=== Seed complete ===');
   console.log(`Login: admin.system@gov.bc.ca`);
-  console.log(`Product: http://localhost:3000/public-cloud/products/${AZURE_DEMO_PLATE}/edit`);
+  console.log(`Azure product: http://localhost:3000/public-cloud/products/${AZURE_DEMO_PLATE}/edit`);
+  console.log(`AWS product: http://localhost:3000/public-cloud/products/${AWS_DEMO_PLATE}/edit`);
+  console.log(`Public Cloud Forecast: http://localhost:3000/public-cloud/accountability/forecast`);
 }
 
 main()

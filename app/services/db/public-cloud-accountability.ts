@@ -41,24 +41,32 @@ const PROVIDER_FORECAST_CURRENCY: Record<Provider, 'USD' | 'CAD'> = {
 
 /**
  * Platform-wide forecast rollup for the governance dashboard: sums the latest
- * approved forecast of every active public cloud product per month. AWS
- * forecasts are USD and Azure forecasts are CAD, so totals are grouped by
- * currency rather than combined into a single (meaningless) number.
+ * approved forecast of every active public cloud product per month, alongside
+ * actual spend from closed-month CSP history. AWS forecasts are USD and Azure
+ * forecasts are CAD, so totals are grouped by currency rather than combined
+ * into a single (meaningless) number.
  */
 export async function getPlatformForecastSummary() {
   const products = await prisma.publicCloudProduct.findMany({
     where: { status: ProjectStatus.ACTIVE },
     select: { licencePlate: true, provider: true },
   });
+  const licencePlates = products.map((p) => p.licencePlate);
 
-  const approvedForecasts = await prisma.cloudCostForecast.findMany({
-    where: {
-      licencePlate: { in: products.map((p) => p.licencePlate) },
-      status: CloudCostForecastStatus.APPROVED,
-    },
-    orderBy: { version: 'desc' },
-    select: { licencePlate: true, monthlyValues: true },
-  });
+  const [approvedForecasts, spendHistories] = await Promise.all([
+    prisma.cloudCostForecast.findMany({
+      where: {
+        licencePlate: { in: licencePlates },
+        status: CloudCostForecastStatus.APPROVED,
+      },
+      orderBy: { version: 'desc' },
+      select: { licencePlate: true, monthlyValues: true },
+    }),
+    prisma.cloudSpendHistory.findMany({
+      where: { licencePlate: { in: licencePlates } },
+      select: { licencePlate: true, months: true },
+    }),
+  ]);
 
   // Ordered by version desc, so the first forecast seen per plate is the active one.
   const activeForecastByPlate = new Map<string, MonthlyValue[]>();
@@ -68,12 +76,20 @@ export async function getPlatformForecastSummary() {
     }
   }
 
+  const historyMonthsByPlate = new Map<string, { year: number; month: number; actualTotal: number }[]>();
+  for (const history of spendHistories) {
+    const months = historyMonthsByPlate.get(history.licencePlate) ?? [];
+    months.push(...history.months);
+    historyMonthsByPlate.set(history.licencePlate, months);
+  }
+
   type CurrencyGroup = {
     currency: 'USD' | 'CAD';
     providers: Set<Provider>;
     productCount: number;
     forecastCount: number;
     totalsByMonth: Map<string, MonthlyValue>;
+    actualsByMonth: Map<string, number>;
   };
   const groups = new Map<'USD' | 'CAD', CurrencyGroup>();
 
@@ -81,11 +97,23 @@ export async function getPlatformForecastSummary() {
     const currency = PROVIDER_FORECAST_CURRENCY[product.provider];
     let group = groups.get(currency);
     if (!group) {
-      group = { currency, providers: new Set(), productCount: 0, forecastCount: 0, totalsByMonth: new Map() };
+      group = {
+        currency,
+        providers: new Set(),
+        productCount: 0,
+        forecastCount: 0,
+        totalsByMonth: new Map(),
+        actualsByMonth: new Map(),
+      };
       groups.set(currency, group);
     }
     group.providers.add(product.provider);
     group.productCount += 1;
+
+    for (const closedMonth of historyMonthsByPlate.get(product.licencePlate) ?? []) {
+      const key = monthKey(closedMonth.year, closedMonth.month);
+      group.actualsByMonth.set(key, (group.actualsByMonth.get(key) ?? 0) + closedMonth.actualTotal);
+    }
 
     const monthlyValues = activeForecastByPlate.get(product.licencePlate);
     if (!monthlyValues) continue;
@@ -107,17 +135,26 @@ export async function getPlatformForecastSummary() {
     productsWithForecast: activeForecastByPlate.size,
     groups: [...groups.values()]
       .sort((a, b) => a.currency.localeCompare(b.currency))
-      .map((group) => ({
-        currency: group.currency,
-        providers: [...group.providers].sort(),
-        productCount: group.productCount,
-        forecastCount: group.forecastCount,
-        monthlyTotals: mergeMonthlyValuesOntoFiscalHorizon(
+      .map((group) => {
+        const monthlyTotals = mergeMonthlyValuesOntoFiscalHorizon(
           [...group.totalsByMonth.values()],
           FISCAL_FORECAST_YEARS,
           group.currency,
-        ),
-      })),
+        );
+        // Aligned with monthlyTotals; null for months without closed-month actuals.
+        const monthlyActuals = monthlyTotals.map(
+          (slot) => group.actualsByMonth.get(monthKey(slot.year, slot.month)) ?? null,
+        );
+
+        return {
+          currency: group.currency,
+          providers: [...group.providers].sort(),
+          productCount: group.productCount,
+          forecastCount: group.forecastCount,
+          monthlyTotals,
+          monthlyActuals,
+        };
+      }),
   };
 }
 

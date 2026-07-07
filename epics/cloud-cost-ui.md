@@ -20,12 +20,12 @@ Legacy `/accountability` URLs redirect to `/edit`.
 
 ### Admin navigation
 
-| Route                                   | Purpose                                                     | Jira        | Status |
-| --------------------------------------- | ----------------------------------------------------------- | ----------- | ------ |
-| `/public-cloud/accountability/all`      | Governance dashboard: KPI cards + presets (Stories 6.2–6.4) | CR-23/CR-24 | Done   |
-| `/public-cloud/accountability/forecast` | Read-only platform-wide forecast rollup (per currency)      | —           | Done   |
-| `/public-cloud/accountability/audit`    | Notification audit log (Story 7.5)                          | —           | Done   |
-| `/admin/public-cloud/cost-rules`        | Rules configuration (RC.1–RC.3)                             | CR-39       | Done   |
+| Route                                   | Purpose                                                                                 | Jira        | Status |
+| --------------------------------------- | --------------------------------------------------------------------------------------- | ----------- | ------ |
+| `/public-cloud/accountability/all`      | Governance dashboard: KPI cards + presets (Stories 6.2–6.4)                             | CR-23/CR-24 | Done   |
+| `/public-cloud/accountability/forecast` | "Public Cloud Forecast": read-only forecast, actuals and variance rollup (per currency) | —           | Done   |
+| `/public-cloud/accountability/audit`    | Notification audit log (Story 7.5)                                                      | —           | Done   |
+| `/admin/public-cloud/cost-rules`        | Rules configuration (RC.1–RC.3)                                                         | CR-39       | Done   |
 
 The former `compliance` (CR-24, Story 6.2), `director` (Story 6.3), and `executive` (Story 6.4)
 routes are consolidated into `/all` as the **Escalation list** / **Needs action** presets and the

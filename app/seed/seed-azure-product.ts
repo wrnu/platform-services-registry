@@ -4,6 +4,8 @@ import { ProjectStatus, Provider, PublicCloudProductMemberRole } from '../prisma
 
 export const AZURE_DEMO_PLATE = 'e71b0e';
 export const AZURE_DEMO_NAME = 'Cost Model Test 1';
+export const AWS_DEMO_PLATE = 'f82c1a';
+export const AWS_DEMO_NAME = 'Cost Model Test 2 (AWS)';
 
 async function requireUser(email: string) {
   const user = await prisma.user.findFirst({ where: { email } });
@@ -13,13 +15,21 @@ async function requireUser(email: string) {
   return user;
 }
 
-export async function seedAzurePublicCloudProduct() {
+type DemoProductConfig = {
+  licencePlate: string;
+  name: string;
+  provider: Provider;
+  description: string;
+  budget: { dev: number; test: number; prod: number; tools: number };
+};
+
+async function seedDemoPublicCloudProduct(config: DemoProductConfig) {
   const existing = await prisma.publicCloudProduct.findFirst({
-    where: { licencePlate: AZURE_DEMO_PLATE },
+    where: { licencePlate: config.licencePlate },
   });
 
   if (existing) {
-    console.log(`  Azure product ${AZURE_DEMO_PLATE} (${existing.name}) already exists — skipped`);
+    console.log(`  ${config.provider} product ${config.licencePlate} (${existing.name}) already exists — skipped`);
     return existing;
   }
 
@@ -46,30 +56,23 @@ export async function seedAzurePublicCloudProduct() {
     toolsRequiresNetworking: false,
   };
 
-  const budget = {
-    dev: 12000,
-    test: 10000,
-    prod: 20000,
-    tools: 5000,
-  };
-
   const product = await prisma.publicCloudProduct.create({
     data: {
-      licencePlate: AZURE_DEMO_PLATE,
-      name: AZURE_DEMO_NAME,
-      description: 'Local seed Azure product for accountability and cost testing.',
+      licencePlate: config.licencePlate,
+      name: config.name,
+      description: config.description,
       status: ProjectStatus.ACTIVE,
-      budget,
+      budget: config.budget,
       projectOwnerId: projectOwner.id,
       primaryTechnicalLeadId: primaryTechnicalLead.id,
       secondaryTechnicalLeadId: secondaryTechnicalLead.id,
       expenseAuthorityId: expenseAuthority.id,
       organizationId: org.id,
-      provider: Provider.AZURE,
+      provider: config.provider,
       requiresNetworking: false,
       networkingReason: '',
       providerSelectionReasons: ['Cost Efficiency'],
-      providerSelectionReasonsNote: 'Local development seed product (Azure).',
+      providerSelectionReasonsNote: `Local development seed product (${config.provider}).`,
       environmentsEnabled,
       members: [
         { userId: projectOwner.id, roles: [PublicCloudProductMemberRole.EDITOR] },
@@ -80,13 +83,13 @@ export async function seedAzurePublicCloudProduct() {
   });
 
   const existingBilling = await prisma.publicCloudBilling.findFirst({
-    where: { licencePlate: AZURE_DEMO_PLATE },
+    where: { licencePlate: config.licencePlate },
   });
 
   if (!existingBilling) {
     await prisma.publicCloudBilling.create({
       data: {
-        licencePlate: AZURE_DEMO_PLATE,
+        licencePlate: config.licencePlate,
         expenseAuthorityId: expenseAuthority.id,
         accountCoding: defaultAccountCoding,
         signed: true,
@@ -99,6 +102,36 @@ export async function seedAzurePublicCloudProduct() {
     });
   }
 
-  console.log(`  created Azure product ${AZURE_DEMO_PLATE} — ${AZURE_DEMO_NAME}`);
+  console.log(`  created ${config.provider} product ${config.licencePlate} — ${config.name}`);
   return product;
+}
+
+export async function seedAzurePublicCloudProduct() {
+  return seedDemoPublicCloudProduct({
+    licencePlate: AZURE_DEMO_PLATE,
+    name: AZURE_DEMO_NAME,
+    provider: Provider.AZURE,
+    description: 'Local seed Azure product for accountability and cost testing.',
+    budget: {
+      dev: 12000,
+      test: 10000,
+      prod: 20000,
+      tools: 5000,
+    },
+  });
+}
+
+export async function seedAwsPublicCloudProduct() {
+  return seedDemoPublicCloudProduct({
+    licencePlate: AWS_DEMO_PLATE,
+    name: AWS_DEMO_NAME,
+    provider: Provider.AWS,
+    description: 'Local seed AWS product for accountability and cost testing (USD).',
+    budget: {
+      dev: 8000,
+      test: 6000,
+      prod: 15000,
+      tools: 3000,
+    },
+  });
 }

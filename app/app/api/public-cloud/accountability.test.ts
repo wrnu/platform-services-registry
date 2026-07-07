@@ -312,6 +312,17 @@ describe('Public Cloud accountability APIs', () => {
         (v: { year: number; month: number }) => v.year === now.getFullYear() && v.month === now.getMonth() + 1,
       );
       expect(currentMonth?.amount).toBe(6000);
+
+      // Closed-month actuals from CSP history are aligned with the forecast horizon.
+      expect(group.monthlyActuals).toHaveLength(group.monthlyTotals.length);
+      const previousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const previousMonthIndex = group.monthlyTotals.findIndex(
+        (v: { year: number; month: number }) =>
+          v.year === previousMonth.getFullYear() && v.month === previousMonth.getMonth() + 1,
+      );
+      if (previousMonthIndex >= 0) {
+        expect(group.monthlyActuals[previousMonthIndex]).toBe(4800);
+      }
     });
 
     it('rejects users without accountability access', async () => {

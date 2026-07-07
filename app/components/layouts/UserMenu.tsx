@@ -131,7 +131,7 @@ export default function UserMenu() {
       permission: 'viewPublicCloudAccountability',
     },
     {
-      text: 'Platform Forecast',
+      text: 'Public Cloud Forecast',
       Icon: IconClockDollar,
       href: '/public-cloud/accountability/forecast',
       permission: 'viewPublicCloudAccountability',

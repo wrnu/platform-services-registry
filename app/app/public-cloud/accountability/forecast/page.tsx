@@ -31,10 +31,25 @@ function SummaryCard({ label, value, hint }: { label: string; value: string; hin
   );
 }
 
+function formatVariance(variance: number, currency: string) {
+  const sign = variance > 0 ? '+' : variance < 0 ? '−' : '';
+  return `${sign}${formatForecastAmount(Math.abs(variance), currency)}`;
+}
+
+function varianceClass(variance: number) {
+  if (variance > 0) return 'text-red-600';
+  if (variance < 0) return 'text-green-600';
+  return 'text-gray-600';
+}
+
 function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['groups'][number] }) {
   const values = group.monthlyTotals as MonthlyValue[];
+  const actuals = group.monthlyActuals;
   const fiscalYearChunks = getFiscalYearChunks(values);
   const grandTotal = sumMonthlyValues(values);
+  const actualToDate = actuals.reduce<number>((sum, v) => sum + (v ?? 0), 0);
+  const forecastForActualMonths = values.reduce((sum, v, i) => (actuals[i] != null ? sum + v.amount : sum), 0);
+  const hasActuals = actuals.some((v) => v != null);
   const spendLabel = group.providers.length === 1 ? getProviderSpendLabel(group.providers[0]) : 'Cloud Spend';
 
   return (
@@ -45,7 +60,7 @@ function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['group
         </h2>
         <p className="text-sm text-gray-600">
           {group.forecastCount} of {group.productCount} {group.providers.join(' / ')} products have an approved forecast
-          included in these totals.
+          included in these totals. Actuals are closed-month spend reported by the cloud service provider.
         </p>
       </div>
 
@@ -54,6 +69,13 @@ function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['group
           const yearTotal = sumMonthlyValues(fyChunk.months);
           const showYearTotal = !isInProgressFiscalYear(fyChunk);
           const yoy = getAdjacentFiscalYearPercentChange(fiscalYearChunks, chunkIndex);
+          const chunkActuals = fyChunk.months.map((_, i) => actuals[fyChunk.startIndex + i] ?? null);
+          const chunkHasActuals = chunkActuals.some((v) => v != null);
+          const chunkActualTotal = chunkActuals.reduce<number>((sum, v) => sum + (v ?? 0), 0);
+          const chunkVarianceTotal = fyChunk.months.reduce(
+            (sum, v, i) => (chunkActuals[i] != null ? sum + (chunkActuals[i]! - v.amount) : sum),
+            0,
+          );
 
           return (
             <div key={fyChunk.label} className="border border-gray-200 rounded-lg overflow-hidden bg-white">
@@ -87,7 +109,7 @@ function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['group
                     </tr>
                   </thead>
                   <tbody>
-                    <tr>
+                    <tr className="border-b border-gray-100">
                       <td className="px-3 py-2 text-gray-600 sticky left-0 bg-white border-r border-gray-100">
                         Forecast
                       </td>
@@ -109,6 +131,50 @@ function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['group
                         <td className="px-3 py-2 text-center text-sm bg-gray-50 text-gray-400">In progress</td>
                       )}
                     </tr>
+                    <tr className="border-b border-gray-100">
+                      <td className="px-3 py-2 text-gray-600 sticky left-0 bg-white border-r border-gray-100">
+                        Actual
+                      </td>
+                      {fyChunk.months.map((v, i) => (
+                        <td
+                          key={monthKey(v.year, v.month)}
+                          className={`px-2 py-2 text-center ${
+                            chunkActuals[i] != null ? 'text-gray-900' : 'text-gray-400'
+                          }`}
+                        >
+                          {chunkActuals[i] != null ? formatForecastAmount(chunkActuals[i]!, group.currency) : '—'}
+                        </td>
+                      ))}
+                      <td className="px-3 py-2 text-center font-semibold text-gray-900">
+                        {chunkHasActuals ? formatForecastAmount(chunkActualTotal, group.currency) : '—'}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-3 py-2 text-gray-600 sticky left-0 bg-white border-r border-gray-100">
+                        Variance
+                      </td>
+                      {fyChunk.months.map((v, i) => {
+                        const actual = chunkActuals[i];
+                        const variance = actual != null ? actual - v.amount : null;
+                        return (
+                          <td
+                            key={monthKey(v.year, v.month)}
+                            className={`px-2 py-2 text-center ${
+                              variance != null ? varianceClass(variance) : 'text-gray-400'
+                            }`}
+                          >
+                            {variance != null ? formatVariance(variance, group.currency) : '—'}
+                          </td>
+                        );
+                      })}
+                      <td
+                        className={`px-3 py-2 text-center font-semibold ${
+                          chunkHasActuals ? varianceClass(chunkVarianceTotal) : 'text-gray-400'
+                        }`}
+                      >
+                        {chunkHasActuals ? formatVariance(chunkVarianceTotal, group.currency) : '—'}
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
@@ -117,23 +183,42 @@ function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['group
         })}
       </div>
 
-      <div className="rounded-lg border-2 border-amber-300 bg-amber-50 p-4 inline-block">
-        <div className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
-          {values.length}-month platform total ({group.currency})
+      <div className="flex flex-wrap gap-4">
+        <div className="rounded-lg border-2 border-amber-300 bg-amber-50 p-4">
+          <div className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+            {values.length}-month forecast total ({group.currency})
+          </div>
+          <div className="text-2xl font-bold text-gray-900 mt-1">
+            {formatForecastAmount(grandTotal, group.currency)}
+          </div>
+          <div className="text-xs text-gray-600 mt-1">{yearRangeLabel(values)}</div>
         </div>
-        <div className="text-2xl font-bold text-gray-900 mt-1">{formatForecastAmount(grandTotal, group.currency)}</div>
-        <div className="text-xs text-gray-600 mt-1">{yearRangeLabel(values)}</div>
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <div className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+            Actuals to date ({group.currency})
+          </div>
+          <div className="text-2xl font-bold text-gray-900 mt-1">
+            {hasActuals ? formatForecastAmount(actualToDate, group.currency) : '—'}
+          </div>
+          {hasActuals ? (
+            <div className={`text-sm mt-1 ${varianceClass(actualToDate - forecastForActualMonths)}`}>
+              {formatVariance(actualToDate - forecastForActualMonths, group.currency)} vs forecast for closed months
+            </div>
+          ) : (
+            <div className="text-xs text-gray-600 mt-1">No closed-month spend reported yet</div>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-const platformForecastPage = createClientPage({
+const publicCloudForecastPage = createClientPage({
   permissions: [GlobalPermissions.ViewPublicCloudAccountability],
   fallbackUrl: '/login?callbackUrl=/home',
 });
 
-export default platformForecastPage(() => {
+export default publicCloudForecastPage(() => {
   const { data, isLoading } = useQuery<PlatformForecastSummary>({
     queryKey: ['accountability-platform-forecast'],
     queryFn: () => getPlatformForecast(),
@@ -146,10 +231,11 @@ export default platformForecastPage(() => {
     <LoadingBox isLoading={isLoading}>
       <div className="space-y-6 p-4">
         <div>
-          <h1 className="text-2xl font-bold">Platform forecast</h1>
+          <h1 className="text-2xl font-bold">Public Cloud Forecast</h1>
           <p className="text-sm text-gray-600 mt-1">
-            Read-only rollup of the latest approved forecast for every active public cloud product. AWS forecasts are in
-            USD and Azure forecasts in CAD, so totals are reported per currency.
+            Read-only rollup of the latest approved forecast for every active public cloud product, with closed-month
+            actuals and variance. AWS forecasts are in USD and Azure forecasts in CAD, so totals are reported per
+            currency.
           </p>
         </div>
 
