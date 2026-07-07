@@ -2,6 +2,8 @@
 
 Technical companion for the [Cloud Cost Accountability epic](./cloud-cost.md). Defines **data shapes** the Registry expects from the Cloud Service Provider (CSP) layer and how those map to Registry persistence.
 
+Jira story status: [cloud-cost-jira-backlog.md](./cloud-cost-jira-backlog.md).
+
 **Assumption:** CSP integration delivers correct, licence-plate-level consumption data. This document does not specify how CSP collects data from AWS/Azure or how messages are transported.
 
 ## Current implementation baseline
@@ -17,8 +19,8 @@ Technical companion for the [Cloud Cost Accountability epic](./cloud-cost.md). D
 | Forecasts and accountability state        | Implemented             | `CloudCostForecast`, `CloudCostAccountabilityState`, `AccountabilityAlert`, `CloudCostQuarterlyReview`            |
 | Rules configuration                       | Implemented             | `CloudCostRulesConfig` — admin UI `/admin/public-cloud/cost-rules`                                                |
 | Accountability jobs (scheduled)           | Implemented             | `app/services/accountability/jobs.ts`, Airflow `accountability_jobs_*` DAGs                                       |
-| Forecast reject                           | Not implemented         | `rejectedAt` fields on schema; Story 1.5                                                                          |
-| Notification audit                        | Not implemented         | Story 7.5                                                                                                         |
+| Forecast reject                           | Implemented             | Story 1.5 — `rejectForecast()`, `POST .../forecasts/[id]/reject`                                                  |
+| Notification audit                        | Implemented             | Story 7.5 — `AccountabilityNotificationLog`, `accountability-notifications.ts`                                    |
 | 80% budget warning on request form        | UI text only            | `app/components/form/Budget.tsx` — not enforced; milestones use approved forecast                                 |
 | Private cloud cost projection             | Implemented (reference) | `app/services/db/private-cloud-costs.ts`                                                                          |
 
@@ -342,8 +344,8 @@ CSP reads approved monthly values when computing `currentMonthForecast` in snaps
 | ---------------------------------- | -------- | ---------------------------------- |
 | `licencePlate`                     | string   |                                    |
 | `fiscalYear`, `quarter`            | number   | Q1 starts Jan 1                    |
-| `forecastMonthsAdded`              | boolean  | Months 21–24                       |
-| `forecastMonthsReviewed`           | boolean  | Prior 21 months                    |
+| `forecastMonthsAdded`              | boolean  | Months 13–24 (extend horizon)      |
+| `forecastMonthsReviewed`           | boolean  | Full 24-month forecast reviewed    |
 | `membersReviewed`                  | boolean  |                                    |
 | `spendLookbackReviewed`            | boolean  | Uses `CspConsumptionHistory`       |
 | `softQrCompleted`                  | boolean  |                                    |
@@ -403,15 +405,16 @@ Product-scoped actions use `_permissions` on the decorated product (e.g. `viewAc
 
 ## Implementation phases
 
-| Phase                | Deliverable                                     | Status                                   |
-| -------------------- | ----------------------------------------------- | ---------------------------------------- |
-| 1 — Rules config     | `CloudCostRulesConfig` + admin UI               | Done                                     |
-| 2 — Forecast CRUD    | Draft, version, submit, approve                 | Done (reject deferred)                   |
-| 3 — CSP ingest       | Accept shapes above; persist snapshots          | Done                                     |
-| 4 — Alerts + notify  | Accept `CspConsumptionAlert`; CHES templates    | Done (Scenario 10 deferred)              |
-| 5 — Quarterly review | PO workflow + `CspConsumptionHistory` lookback  | Done                                     |
-| 6 — Dashboards       | Owner tab, costs page, admin + compliance lists | Done (director/exec dashboards deferred) |
-| 7 — Audit            | Notification audit + auditor UI                 | Partial — data persisted; 7.5 not done   |
+| Phase                | Deliverable                                     | Status                                 | Jira     |
+| -------------------- | ----------------------------------------------- | -------------------------------------- | -------- |
+| 1 — Rules config     | `CloudCostRulesConfig` + admin UI               | Done                                   | CR-39    |
+| 2 — Forecast CRUD    | Draft, version, submit, approve, reject         | Done                                   | CR-15–18 |
+| 3 — CSP ingest       | Accept shapes above; persist snapshots          | Done                                   | CR-29    |
+| 4 — Alerts + notify  | Accept `CspConsumptionAlert`; CHES templates    | Done                                   | CR-32–39 |
+| 5 — Quarterly review | PO workflow + `CspConsumptionHistory` lookback  | Done                                   | CR-19–27 |
+| 6 — Dashboards       | Owner tab, costs page, admin + governance views | Done                                   | CR-23    |
+| 7 — Audit            | Notification log + product audit tabs           | Partial — no standalone auditor portal | 7.1–7.5  |
+| 8 — Export           | Project + bundled CSV                           | Partial — not Excel                    | CR-41–42 |
 
 ---
 

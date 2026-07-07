@@ -62,15 +62,15 @@ For A3, both percentage and dollar conditions apply with minimum dollar floors a
 
 ## Quarterly forecast policy
 
-| Setting          | Business rule                                                                                                                          |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Horizon          | **24 months**, monthly granularity                                                                                                     |
-| Review dates     | **1 Jan, 1 Apr, 1 Jul, 1 Oct**                                                                                                         |
-| Required actions | Add months **21–24**; review/update prior **21 months**; review **team members**; review **past 3 months spend**; complete **soft QR** |
-| Sign-off         | **PO sign-off** required                                                                                                               |
-| Reminders        | **Weekly** until PO signs off                                                                                                          |
-| Escalation       | If incomplete at **M+1** (one month after quarter start), escalate to **Director / ED**                                                |
-| Non-compliance   | Projects on compliance / escalation list; MoU allows **limited access** but Registry does not enforce it (manual ops)                  |
+| Setting          | Business rule                                                                                                                            |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Horizon          | **24 months**, monthly granularity                                                                                                       |
+| Review dates     | **1 Jan, 1 Apr, 1 Jul, 1 Oct**                                                                                                           |
+| Required actions | Add months **13–24**; review/update **24-month forecast**; review **team members**; review **past 3 months spend**; complete **soft QR** |
+| Sign-off         | **PO sign-off** required                                                                                                                 |
+| Reminders        | **Weekly** until PO signs off                                                                                                            |
+| Escalation       | If incomplete at **M+1** (one month after quarter start), escalate to **Director / ED**                                                  |
+| Non-compliance   | Projects on compliance / escalation list; MoU allows **limited access** but Registry does not enforce it (manual ops)                    |
 
 Initial forecast creation may still follow the [eMOU approval chain](../docs/business-logic/public-cloud/emou-workflow.md) for first-time products. **Ongoing quarterly accountability** uses **PO sign-off**, not director re-approval each quarter (unless policy changes).
 
@@ -232,6 +232,7 @@ Hardcoded in `app/services/ches/public-cloud/accountability-emails.ts` via Keycl
 ## Related documents
 
 -   [Cloud Cost epic](./cloud-cost.md)
+-   [Jira backlog mapping](./cloud-cost-jira-backlog.md)
 -   [Cloud Cost data model](./cloud-cost-data-model.md)
 -   [eMOU workflow](../docs/business-logic/public-cloud/emou-workflow.md)
 -   [Registry roles guide](../docs/business-logic/registry-roles-guide.md)

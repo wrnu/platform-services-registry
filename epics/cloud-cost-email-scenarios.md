@@ -6,18 +6,21 @@ Templates live in `app/emails/_templates/public-cloud/`. Send logic: `app/servic
 
 ## Status summary
 
-| Scenario                        | Template file                             | Status              |
-| ------------------------------- | ----------------------------------------- | ------------------- |
-| 1 — Quarterly forecast reminder | `QuarterlyForecastReminder.tsx`           | Done                |
-| 2 — Weekly PO sign-off reminder | `QuarterlySignOffReminder.tsx`            | Done                |
-| 3 — M+1 escalation              | `QuarterlyEscalation.tsx`                 | Done                |
-| 4 — Consumption milestone       | `ConsumptionMilestone.tsx`                | Done                |
-| 5 — Early pace warning          | `ConsumptionPaceWarning.tsx`              | Done                |
-| 6 — A1 variance                 | `CostAlertA1.tsx`, `CostAlertA1Admin.tsx` | Done                |
-| 7 — A2 variance                 | `CostAlertA2.tsx`, `CostAlertA2Admin.tsx` | Done                |
-| 8 — A3 variance                 | `CostAlertA3.tsx`, `CostAlertA3Admin.tsx` | Done                |
-| 9 — Monthly recap               | `MonthlyAccountabilityRecap.tsx`          | Done                |
-| 10 — Forecast submitted         | `ForecastSubmitted.tsx`                   | **Not implemented** |
+| Scenario                        | Template file                             | Status |
+| ------------------------------- | ----------------------------------------- | ------ |
+| 1 — Quarterly forecast reminder | `QuarterlyForecastReminder.tsx`           | Done   |
+| 2 — Weekly PO sign-off reminder | `QuarterlySignOffReminder.tsx`            | Done   |
+| 3 — M+1 escalation              | `QuarterlyEscalation.tsx`                 | Done   |
+| 4 — Consumption milestone       | `ConsumptionMilestone.tsx`                | Done   |
+| 5 — Early pace warning          | `ConsumptionPaceWarning.tsx`              | Done   |
+| 6 — A1 variance                 | `CostAlertA1.tsx`, `CostAlertA1Admin.tsx` | Done   |
+| 7 — A2 variance                 | `CostAlertA2.tsx`, `CostAlertA2Admin.tsx` | Done   |
+| 8 — A3 variance                 | `CostAlertA3.tsx`, `CostAlertA3Admin.tsx` | Done   |
+| 9 — Monthly recap               | `MonthlyAccountabilityRecap.tsx`          | Done   |
+| 10 — Forecast submitted         | `ForecastSubmitted.tsx`                   | Done   |
+| 11 — Forecast rejected          | `ForecastRejected.tsx`                    | Done   |
+| 12 — Non-compliance summary     | `NonComplianceSummary.tsx`                | Done   |
+| 13 — Pre-emptive notice (A0)    | `PreemptiveThresholdNotice.tsx`           | Done   |
 
 ## Scenario 1: Quarterly forecast update reminder
 
@@ -27,7 +30,7 @@ Templates live in `app/emails/_templates/public-cloud/`. Send logic: `app/servic
 **Content:**
 
 -   Product name and licence plate
--   Checklist: extend months 21–24, review 21 months, review members, review 3-month spend, complete soft QR
+-   Checklist: extend months 13–24, review 24-month forecast, review members, review 3-month spend, complete soft QR
 -   Link to Forecast / Accountability page
 -   Explanation language (what happens if non-compliant)
 
@@ -140,7 +143,7 @@ flowchart LR
 
 ## Scenario 10: Forecast submitted for approval
 
-**Status:** Not implemented.
+**Status:** Done.
 
 **Trigger:** PO submits initial or revised forecast
 **Recipients:** `billing-reviewer` cohort
@@ -151,17 +154,19 @@ flowchart LR
 -   Forecast version and horizon
 -   Link to approve / reject in Registry
 
-**Template:** `ForecastSubmitted.tsx` (planned)
+**Template:** `ForecastSubmitted.tsx` (implemented)
 
 ## Implementation notes
 
 -   CHES integration: `app/services/ches/public-cloud/accountability-emails.ts`
 -   **Admin / escalation routing (to be solved):** non-project recipients are hardcoded Keycloak global roles today, not configurable on the cost-rules page. Policy gap and options: [rules config — notification routing](./cloud-cost-rules-config.md#to-be-solved-admin-and-escalation-notification-routing)
--   Notification audit history (Story 7.5): **not implemented** — sends are not persisted for auditors
+-   Notification audit history (Story 7.5): **implemented** — all accountability CHES sends logged to `AccountabilityNotificationLog`; audit UI at `/public-cloud/accountability/audit`
+-   Pre-emptive notice (CR-39 / A0): `PreemptiveThresholdNotice.tsx` on CSP consumption ingest
 -   React Email previews: templates under `app/emails/_templates/public-cloud/`
 
 ## Related documents
 
 -   [Cloud Cost workflows](./cloud-cost-workflows.md)
 -   [Rules configuration](./cloud-cost-rules-config.md)
+-   [Jira backlog mapping](./cloud-cost-jira-backlog.md)
 -   [Public Cloud email scenarios](../docs/business-logic/public-cloud/email-scenario.md)

@@ -24,7 +24,7 @@ flowchart TB
 
 Initial approval follows the same approver role as eMOU director review (`billing-reviewer`). See [eMOU workflow](../docs/business-logic/public-cloud/emou-workflow.md).
 
-**Implementation note:** Approve is implemented. Reject (status `REJECTED`) and Scenario 10 billing-reviewer notification are **not implemented** (Story 1.5, email Scenario 10).
+**Implementation note:** Approve, reject (Story 1.5), and Scenario 10 `ForecastSubmitted` email are **implemented**. See [Jira backlog mapping](./cloud-cost-jira-backlog.md).
 
 ## 2. Quarterly forecast update (1 Jan / Apr / Jul / Oct)
 
@@ -32,8 +32,8 @@ Initial approval follows the same approver role as eMOU director review (`billin
 flowchart TB
     Q((Quarter start))
     Q --> R[CHES: quarterly update reminder to PO / TL]
-    R --> U[PO extends months 21–24]
-    U --> V[PO reviews / updates prior 21 months]
+    R --> U[PO extends months 13–24]
+    U --> V[PO reviews / updates 24-month forecast]
     V --> W[PO reviews team members]
     W --> X[PO reviews past 3 months spend]
     X --> Y[Soft quarterly review]

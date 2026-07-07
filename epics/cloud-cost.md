@@ -7,6 +7,7 @@ Repo epic documentation (not published to MkDocs). Companion documents:
 -   [Workflows](./cloud-cost-workflows.md) — forecast, quarterly review, alerts
 -   [Email scenarios](./cloud-cost-email-scenarios.md) — CHES templates and triggers
 -   [UI specification](./cloud-cost-ui.md) — routes, pages, components
+-   [Jira backlog mapping](./cloud-cost-jira-backlog.md) — CR-1–CR-42 epics/stories vs implementation status
 
 ## Epic goal
 
@@ -36,8 +37,8 @@ Legend on the whiteboard: **E** = email, **T** = tooling/automation, **H** = hum
 
 1. Maintain a **24-month monthly forecast** in the Registry for each Project Set.
 2. On **1 Jan, 1 Apr, 1 Jul, and 1 Oct**, send reminders to update the forecast. Each quarterly cycle includes:
-    - Add forecast months **21–24** (extend the rolling horizon)
-    - Review and update the existing **21 months**
+    - Add forecast months **13–24** (extend the rolling horizon)
+    - Review and update the full **24-month forecast**
     - Review and update **team members**
     - Review **past three months of spend** and complete a **soft quarterly review (soft QR)**
     - Obtain **Product Owner sign-off**
@@ -168,7 +169,9 @@ MVP accountability features are **implemented** in the Registry. The table below
 | Notifications         | Request / eMOU CHES only                               | Milestone, pace, A1–A3, quarterly, escalation, monthly recap                          |
 | 80% budget warning    | Documented in request form only                        | Milestone emails at 50/80/100% of **approved forecast** (not `product.budget`)        |
 
-**Not implemented:** forecast reject (Story 1.5), forecast-submitted email (Scenario 10), notification audit history (Story 7.5), director/executive dashboards (6.3–6.4). See [implementation status](#implementation-status).
+**Shipped on accountability branch; partial items tracked in [Jira backlog mapping](./cloud-cost-jira-backlog.md).**
+
+**Remaining gaps (summary):** provider-specific costs page title (CR-2), CSV vs Excel export (CR-41/42), dedicated escalation-list email (CR-24), configurable Director/ED routing (CR-22/36), MoU update (CR-28 deferred), production Airflow deploy.
 
 Local demo: `pnpm run seed-accountability-local` — see [sandbox setup](../docs/development-setup/sandbox.md#seed-accountability-demo-data).
 
@@ -266,7 +269,7 @@ flowchart LR
 **Acceptance criteria** (from governance whiteboard)
 
 -   Quarterly reminder fires on **1 Jan, 1 Apr, 1 Jul, 1 Oct**
--   PO can extend forecast months **21–24** and review/update the prior **21 months**
+-   PO can extend forecast months **13–24** and review/update the full **24-month forecast**
 -   PO can review and update **team members** on the product
 -   PO can review **past three months of spend** and complete **soft QR**
 -   **PO sign-off** is recorded with date and identity
@@ -467,7 +470,7 @@ Supported statuses:
 **Acceptance criteria**
 
 -   Reminder on **1 Jan, 1 Apr, 1 Jul, 1 Oct**
--   Includes checklist: extend months 21–24, review 21 months, members, 3-month spend, soft QR
+-   Includes checklist: extend months 13–24, review 24-month forecast, members, 3-month spend, soft QR
 
 ### Story 5.2 — Weekly PO sign-off reminder
 
@@ -597,29 +600,31 @@ Supported statuses:
 
 ## Implementation status
 
-Track progress here (no separate GitHub issues). Update as work lands.
+Track progress here (no separate GitHub issues). **Jira keys (CR-1–CR-42)** are mapped in [cloud-cost-jira-backlog.md](./cloud-cost-jira-backlog.md).
 
-| Area                                     | Status       | Notes                                                                                                                                                |
-| ---------------------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Prisma models                            | Done         | `CloudCostForecast`, `CloudSpendSnapshot`, `AccountabilityAlert`, etc.                                                                               |
-| CSP ingest APIs                          | Done         | `PUT /api/internal/csp/consumption`, `POST /api/internal/csp/alerts`, `PUT /api/internal/csp/consumption/history` (service account)                  |
-| Forecast CRUD + approve                  | Done         | Draft, submit, approve routes                                                                                                                        |
-| Quarterly review API                     | Done         | GET/PUT/POST sign-off                                                                                                                                |
-| Alert acknowledge / resolve              | Done         | Product-scoped routes                                                                                                                                |
-| Accountability UI tab                    | Done         | Forecast grid, quarterly checklist, alert modals, spend history                                                                                      |
-| Product costs page (current month spend) | Done         | `/public-cloud/products/[licencePlate]/costs` — CSP snapshot, account breakdown, as-of date                                                          |
-| Admin governance dashboard               | Done         | `/public-cloud/accountability/all`, compliance list                                                                                                  |
-| Rules config admin UI                    | Done         | `/admin/public-cloud/cost-rules`, versioned config + preview                                                                                         |
-| CHES email templates                     | Done         | Milestone, pace, A1–A3 (project + admin), quarterly, escalation, monthly recap                                                                       |
-| Scheduled accountability jobs            | Done         | Airflow DAG `accountability_jobs_{dev,test,prod}` → `POST /api/internal/accountability/jobs`                                                         |
-| API tests                                | Done         | `app/api/public-cloud/accountability.test.ts` — CSP ingest, costs, forecasts, alerts, jobs                                                           |
-| Forecast submitted email                 | Not done     | Scenario 10 — `ForecastSubmitted.tsx` not implemented                                                                                                |
-| Forecast reject flow                     | Not done     | Story 1.5 — schema fields exist; no API/UI                                                                                                           |
-| Audit history (7.1–7.4)                  | Partial      | Forecast versions, alerts, quarterly review persisted; no dedicated auditor UI                                                                       |
-| Notification audit (7.5)                 | Not done     | CHES sends not recorded for audit                                                                                                                    |
-| Production deploy                        | Pending      | Unpause Airflow DAGs; CSP + CHES in dev/test/prod                                                                                                    |
-| Admin notification routing               | To be solved | Map Cloud PO / directors to roles or lists — see [rules config](./cloud-cost-rules-config.md#to-be-solved-admin-and-escalation-notification-routing) |
-| MoU limited access enforcement           | Out of scope | MoU allows it; **not** implemented in Registry — manual ops only if needed                                                                           |
+| Area                             | Status   | Jira / story | Notes                                                                                                                                |
+| -------------------------------- | -------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Prisma models                    | Done     | CR-18        | `CloudCostForecast`, `CloudSpendSnapshot`, `AccountabilityAlert`, `AccountabilityNotificationLog`, etc.                              |
+| CSP ingest APIs                  | Done     | CR-29        | `PUT /api/internal/csp/consumption`, `POST /api/internal/csp/alerts`, `PUT /api/internal/csp/consumption/history` (service account)  |
+| Forecast CRUD + approve + reject | Done     | CR-15–18     | Draft, submit, approve, reject routes + UI                                                                                           |
+| Forecast grid UX                 | Partial  | CR-1–CR-14   | Fiscal FY grid, save modal, bulk edit; CR-2 costs title; CR-14 reworded indicator                                                    |
+| Quarterly review API             | Done     | CR-19        | GET/PUT/POST sign-off                                                                                                                |
+| Quarterly jobs + emails          | Partial  | CR-20–CR-27  | Reminders, weekly sign-off, non-compliance summary; CR-24 escalation email partial; CR-22 routing partial                            |
+| Alert acknowledge / resolve      | Done     | CR-17        | Product-scoped routes; overage explanation required for A1+                                                                          |
+| Accountability UI tab            | Done     | CR-1         | Forecast grid, quarterly checklist, alert modals, audit history tabs                                                                 |
+| Product costs page               | Partial  | CR-2, CR-40  | Current month spend + historical panel; generic costs title                                                                          |
+| Actuals vs forecast              | Done     | CR-30–CR-31  | Actual row in grid, consumption %, CSP history                                                                                       |
+| Admin governance dashboard       | Done     | CR-23        | `/public-cloud/accountability/all`, compliance, director, executive, audit                                                           |
+| Rules config admin UI            | Done     | CR-39        | `/admin/public-cloud/cost-rules`, versioned config + preview + A0 thresholds                                                         |
+| CHES email templates             | Done     | CR-32–CR-39  | Milestone, pace, A0, A1–A3 (project + admin), quarterly, escalation, monthly recap, forecast submitted/rejected                      |
+| Notification audit               | Done     | 7.5          | `AccountabilityNotificationLog`; `/public-cloud/accountability/audit`                                                                |
+| Audit history UI                 | Partial  | 7.1–7.4      | `AccountabilityAuditHistory` on product tab; no standalone auditor portal                                                            |
+| CSV export                       | Partial  | CR-41–CR-42  | Project + bundled CSV; not Excel                                                                                                     |
+| Scheduled accountability jobs    | Done     | CR-19–CR-21  | Airflow DAG `accountability_jobs_{dev,test,prod}` → `POST /api/internal/accountability/jobs` (paused until deploy)                   |
+| API tests                        | Done     | —            | `app/api/public-cloud/accountability.test.ts`                                                                                        |
+| Production deploy                | Pending  | —            | Unpause Airflow DAGs; CSP + CHES in dev/test/prod                                                                                    |
+| Admin notification routing       | Partial  | CR-22, CR-36 | Global Keycloak roles only — see [rules config](./cloud-cost-rules-config.md#to-be-solved-admin-and-escalation-notification-routing) |
+| MoU limited access enforcement   | Deferred | CR-28        | MoU allows it; **not** implemented in Registry — manual ops only if needed                                                           |
 
 ### Local setup after pull
 
@@ -633,27 +638,31 @@ Sandbox must be running (`make localmac SBD=true`). Apply schema to local MongoD
 
 ## MVP scope
 
-Recommended MVP stories:
+Recommended MVP stories — **delivered** on the accountability branch except items marked partial/deferred. See [Jira backlog mapping](./cloud-cost-jira-backlog.md) for CR keys.
 
-| Feature             | Stories                        |
-| ------------------- | ------------------------------ |
-| Forecast management | 1.1–1.4, 1.6                   |
-| Cost accountability | 2.1–2.5                        |
-| Rules engine        | 3.1–3.6                        |
-| Variance response   | 4.1–4.3                        |
-| Notifications       | 5.1–5.9 (Scenario 10 deferred) |
-| Dashboards          | 6.1–6.2                        |
-| Audit               | 7.1–7.4 partial; 7.5 not done  |
+| Feature             | Stories              | Status  |
+| ------------------- | -------------------- | ------- |
+| Forecast management | 1.1–1.4, 1.6         | Done    |
+| Forecast reject     | 1.5                  | Done    |
+| Cost accountability | 2.1–2.5              | Done    |
+| Rules engine        | 3.1–3.6              | Done    |
+| Variance response   | 4.1–4.3              | Done    |
+| Notifications       | 5.1–5.9, Scenario 10 | Done    |
+| Dashboards          | 6.1–6.4              | Done    |
+| Audit               | 7.1–7.5              | Partial |
+| Export (Jira)       | CR-41, CR-42         | Partial |
 
-This delivers the full accountability loop from forecast through spend, variance, action, escalation, and audit.
+Still open (partial or deferred):
 
-Deferred from MVP (still planned):
-
--   Story 1.5 (reject flow)
--   Scenario 10 (forecast-submitted email to billing reviewers)
--   Stories 4.4 (forecast update linked to variance event)
--   Stories 6.3–6.4 (director and executive dashboards)
--   Story 7.5 (notification audit history)
+-   **CR-2** — Provider-specific costs page title
+-   **CR-14** — Final decision on grand-total vs-saved indicator (reworded today)
+-   **CR-24** — Dedicated escalation-list email
+-   **CR-40** — Standalone historical spend route (panel exists on costs tab)
+-   **CR-41 / CR-42** — Excel export (CSV shipped)
+-   **CR-22 / CR-36** — Director/ED/Finance notification routing
+-   **CR-28** — MoU update (deferred)
+-   Story **4.4** — Forecast update linked to variance event (internal; not in Jira CSV)
+-   Production Airflow deploy
 
 Out of scope (not planned in Registry):
 
@@ -661,13 +670,15 @@ Out of scope (not planned in Registry):
 
 ## Implementation phases
 
-All phases below are **complete** except audit UI (7.5) and deferred items listed under [MVP scope](#mvp-scope). See [data model — implementation phases](./cloud-cost-data-model.md#implementation-phases).
+Phases **1–6 complete**; phase **7 partial** (product audit tabs + notification log; not full auditor portal). See [Jira backlog mapping](./cloud-cost-jira-backlog.md).
 
 1. Rules configuration — done
-2. Forecast CRUD and approval — done (reject deferred)
+2. Forecast CRUD and approval — done (including reject)
 3. CSP ingest endpoints — done
-4. Alerts, notifications, dashboards — done (Scenario 10 deferred)
+4. Alerts, notifications, dashboards — done
 5. Quarterly review + jobs — done (Airflow DAGs paused until deploy)
+6. Director / executive dashboards — done
+7. Audit — partial (7.5 notification log done; 7.1–7.4 tabs on product page)
 
 ## Story tracking
 

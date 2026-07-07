@@ -2,7 +2,7 @@
 
 UI routes and components for the [Cloud Cost Accountability epic](./cloud-cost.md).
 
-**Status:** MVP implemented. Gaps: forecast reject UI (Story 1.5), director/executive dashboards (6.3–6.4), dedicated audit history views (7.x).
+**Status:** MVP implemented on accountability branch. Partial gaps tracked in [Jira backlog mapping](./cloud-cost-jira-backlog.md) (CR-2, CR-40, CR-41/42, CR-24).
 
 ## Navigation (implemented)
 
@@ -19,11 +19,14 @@ Legacy `/accountability` URLs redirect to `/edit`.
 
 ### Admin navigation
 
-| Route                                     | Purpose                                        | Status |
-| ----------------------------------------- | ---------------------------------------------- | ------ |
-| `/public-cloud/accountability/all`        | Cross-project governance dashboard (Story 6.2) | Done   |
-| `/public-cloud/accountability/compliance` | Escalation list (`onEscalationList`)           | Done   |
-| `/admin/public-cloud/cost-rules`          | Rules configuration (RC.1–RC.3)                | Done   |
+| Route                                     | Purpose                                        | Jira  | Status  |
+| ----------------------------------------- | ---------------------------------------------- | ----- | ------- |
+| `/public-cloud/accountability/all`        | Cross-project governance dashboard (Story 6.2) | CR-23 | Done    |
+| `/public-cloud/accountability/compliance` | Escalation list (`onEscalationList`)           | CR-24 | Partial |
+| `/public-cloud/accountability/director`   | Projects needing action (Story 6.3)            | —     | Done    |
+| `/public-cloud/accountability/executive`  | Portfolio summary (Story 6.4)                  | —     | Done    |
+| `/public-cloud/accountability/audit`      | Notification audit log (Story 7.5)             | —     | Done    |
+| `/admin/public-cloud/cost-rules`          | Rules configuration (RC.1–RC.3)                | CR-39 | Done    |
 
 ---
 
@@ -56,25 +59,27 @@ Shared component: `app/components/public-cloud/costs/CurrentMonthSpendPanel.tsx`
 
 ### Forecast section
 
-Component: `ForecastGrid.tsx`
+Component: `ProjectBudgetForecastPanel.tsx` (fiscal-year grid in `forecast-grid-utils.ts`)
 
--   24-month grid: year-month, amount, currency
--   Actions: **Create draft**, **Edit draft**, **Submit**, **Approve** (billing reviewer)
--   **Reject** — not implemented (Story 1.5)
--   Version list via forecast `version` field (no separate history drawer yet)
+-   24-month grid: fiscal-year rows (April–March), provider spend label (`Azure Spend` / `AWS Spend`)
+-   Grand total with direction vs last saved forecast; adjacent FY % change
+-   Actuals row when CSP history exists (CR-30)
+-   Actions: **Create draft**, **Edit draft**, **Submit**, **Approve**, **Reject** (billing reviewer, Story 1.5)
+-   Significant-change modal on save (CR-15); apply-to-all-future-months (CR-16)
+-   Audit history tabs via `AccountabilityAuditHistory.tsx` (Stories 7.1–7.5)
 
 ### Quarterly review section
 
 Component: `AccountabilityQuarterlyChecklist.tsx`
 
-| Checklist item         | Registry field           |
-| ---------------------- | ------------------------ |
-| Months 21–24 added     | `forecastMonthsAdded`    |
-| 21 months reviewed     | `forecastMonthsReviewed` |
-| Members reviewed       | `membersReviewed`        |
-| 3-month spend reviewed | `spendLookbackReviewed`  |
-| Soft QR complete       | `softQrCompleted`        |
-| PO sign-off            | `poSignedOff`            |
+| Checklist item             | Registry field           | Notes (24-month horizon) |
+| -------------------------- | ------------------------ | ------------------------ |
+| Months 13–24 added         | `forecastMonthsAdded`    | Extend rolling horizon   |
+| 24-month forecast reviewed | `forecastMonthsReviewed` |                          |
+| Members reviewed           | `membersReviewed`        |                          |
+| 3-month spend reviewed     | `spendLookbackReviewed`  |                          |
+| Soft QR complete           | `softQrCompleted`        |                          |
+| PO sign-off                | `poSignedOff`            |                          |
 
 Primary action: **Sign off** (PO).
 
@@ -83,12 +88,16 @@ Primary action: **Sign off** (PO).
 Component: `AlertResponseModal.tsx`
 
 -   Levels: `MILESTONE`, `PACE`, `A1`–`A3`
--   Actions: **Acknowledge**, **Explain**, **Resolve**
--   Explanation stored on alert record
+-   Actions: **Acknowledge** (overage explanation required for A1+), **Resolve**
+-   Explanation stored on alert record (CR-17)
+
+### Audit history
+
+Component: `AccountabilityAuditHistory.tsx` — tabs for forecast versions, alert history, notification log, quarterly escalations.
 
 ### Spend history
 
-Closed months from `CloudSpendHistory` when CSP has posted history ingest.
+`HistoricalSpendPanel.tsx` on costs tab (CR-40 partial — not a standalone route).
 
 ---
 
@@ -97,7 +106,7 @@ Closed months from `CloudSpendHistory` when CSP has posted history ingest.
 **Route:** `/public-cloud/products/[licencePlate]/costs`
 **Page:** `costs/page.tsx`
 
-Current-month spend panel and link to accountability tab for forecast context.
+Current-month spend panel, historical spend table, CSV export button. Page title still generic (**CR-2** partial).
 
 ---
 
@@ -116,7 +125,7 @@ Current-month spend panel and link to accountability tab for forecast context.
 | Current month variance % |                                     |
 | Escalation flag          | `onEscalationList`                  |
 
-Features: filter panel, pagination via `GET /api/public-cloud/accountability/search`.
+Features: filter panel, pagination, bundled CSV export (CR-42 partial — CSV not Excel).
 
 ---
 
@@ -137,16 +146,19 @@ Global session flags (`app/core/auth-options.ts`):
 
 ## API dependencies
 
-| UI area             | API                                           |
-| ------------------- | --------------------------------------------- |
-| Status + spend      | `GET .../accountability`                      |
-| Current month costs | `GET .../costs`                               |
-| Forecast CRUD       | `GET/POST/PUT .../forecasts`                  |
-| Submit / approve    | `POST .../forecasts/[id]/submit`, `approve`   |
-| Quarterly review    | `GET/PUT/POST .../quarterly-review`           |
-| Alerts              | `POST .../alerts/[id]/acknowledge`, `resolve` |
-| Admin list          | `GET /api/public-cloud/accountability/search` |
-| CSP data            | Internal ingest (not user-facing)             |
+| UI area                   | API                                                          |
+| ------------------------- | ------------------------------------------------------------ |
+| Status + spend            | `GET .../accountability`                                     |
+| Current month costs       | `GET .../costs`                                              |
+| Forecast CRUD             | `GET/POST/PUT .../forecasts`                                 |
+| Submit / approve / reject | `POST .../forecasts/[id]/submit`, `approve`, `reject`        |
+| Export (project)          | `GET .../accountability/export` (CSV)                        |
+| Export (bundled)          | `POST /api/public-cloud/accountability/export`               |
+| Notification audit search | `POST /api/public-cloud/accountability/notifications/search` |
+| Quarterly review          | `GET/PUT/POST .../quarterly-review`                          |
+| Alerts                    | `POST .../alerts/[id]/acknowledge`, `resolve`                |
+| Admin list                | `GET /api/public-cloud/accountability/search`                |
+| CSP data                  | Internal ingest (not user-facing)                            |
 
 See [data model](./cloud-cost-data-model.md#registry-api-surface-illustrative).
 
@@ -156,10 +168,13 @@ See [data model](./cloud-cost-data-model.md#registry-api-surface-illustrative).
 
 | Component                          | Path                                                                          |
 | ---------------------------------- | ----------------------------------------------------------------------------- |
-| `ForecastGrid`                     | `components/public-cloud/accountability/ForecastGrid.tsx`                     |
+| `ProjectBudgetForecastPanel`       | `components/public-cloud/accountability/ProjectBudgetForecastPanel.tsx`       |
+| `AccountabilityAuditHistory`       | `components/public-cloud/accountability/AccountabilityAuditHistory.tsx`       |
+| `AccountabilityGuidancePanel`      | `components/public-cloud/accountability/AccountabilityGuidancePanel.tsx`      |
 | `AccountabilityQuarterlyChecklist` | `components/public-cloud/accountability/AccountabilityQuarterlyChecklist.tsx` |
 | `AlertResponseModal`               | `components/public-cloud/accountability/AlertResponseModal.tsx`               |
 | `CurrentMonthSpendPanel`           | `components/public-cloud/costs/CurrentMonthSpendPanel.tsx`                    |
+| `HistoricalSpendPanel`             | `components/public-cloud/costs/HistoricalSpendPanel.tsx`                      |
 
 ---
 
@@ -168,3 +183,4 @@ See [data model](./cloud-cost-data-model.md#registry-api-surface-illustrative).
 -   [Cloud Cost workflows](./cloud-cost-workflows.md)
 -   [Data model](./cloud-cost-data-model.md)
 -   [Email scenarios](./cloud-cost-email-scenarios.md)
+-   [Jira backlog mapping](./cloud-cost-jira-backlog.md)
