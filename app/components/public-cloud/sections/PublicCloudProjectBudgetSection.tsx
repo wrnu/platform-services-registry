@@ -12,6 +12,7 @@ import AlertResponseModal from '@/components/public-cloud/accountability/AlertRe
 import { FISCAL_FORECAST_HORIZON_MONTHS } from '@/components/public-cloud/accountability/forecast-grid-utils';
 import ProjectBudgetForecastPanel from '@/components/public-cloud/accountability/ProjectBudgetForecastPanel';
 import CurrentMonthSpendPanel from '@/components/public-cloud/costs/CurrentMonthSpendPanel';
+import { Provider } from '@/prisma/client';
 import {
   approvePublicCloudForecast,
   createPublicCloudForecast,
@@ -93,6 +94,7 @@ export default function PublicCloudProjectBudgetSection({
   const [pendingRejectForecastId, setPendingRejectForecastId] = useState<string | null>(null);
 
   const permissions = product?._permissions;
+  const accountabilityCurrency = data?.snapshot?.currency ?? (product?.provider === Provider.AZURE ? 'CAD' : 'USD');
 
   const forecastActions = data
     ? (() => {
@@ -339,7 +341,8 @@ export default function PublicCloudProjectBudgetSection({
                             <Table.Td>{alert.level}</Table.Td>
                             <Table.Td>{new Date(alert.triggeredAt).toLocaleString()}</Table.Td>
                             <Table.Td>
-                              {formatCurrency(alert.varianceAmount)} ({alert.variancePercent.toFixed(1)}%)
+                              {formatCurrency(alert.varianceAmount, { currency: accountabilityCurrency })} (
+                              {alert.variancePercent.toFixed(1)}%)
                             </Table.Td>
                             <Table.Td>{alert.status}</Table.Td>
                             <Table.Td className="space-x-2">
@@ -382,6 +385,7 @@ export default function PublicCloudProjectBudgetSection({
                 alertHistory={data.alertHistory}
                 notificationLogs={data.notificationLogs}
                 escalations={data.escalations}
+                currency={accountabilityCurrency}
               />
 
               {alertModal && (

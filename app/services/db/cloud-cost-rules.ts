@@ -54,19 +54,23 @@ export function rulesConfigModelToData(config: CloudCostRulesConfig): CloudCostR
 
 /** Deactivate the current active config and create the next version as active. */
 async function activateNewConfigVersion(data: CloudCostRulesConfigData, createdById?: string) {
-  const latest = await prisma.cloudCostRulesConfig.findFirst({ orderBy: { version: 'desc' } });
-  const version = latest ? latest.version + 1 : 1;
+  // Run read/deactivate/create in a single transaction so a failure or concurrent write
+  // cannot leave the system with no active config or duplicate version numbers.
+  return prisma.$transaction(async (tx) => {
+    const latest = await tx.cloudCostRulesConfig.findFirst({ orderBy: { version: 'desc' } });
+    const version = latest ? latest.version + 1 : 1;
 
-  await prisma.cloudCostRulesConfig.updateMany({ where: { isActive: true }, data: { isActive: false } });
+    await tx.cloudCostRulesConfig.updateMany({ where: { isActive: true }, data: { isActive: false } });
 
-  return prisma.cloudCostRulesConfig.create({
-    data: {
-      version,
-      isActive: true,
-      effectiveAt: new Date(),
-      ...data,
-      createdById,
-    },
+    return tx.cloudCostRulesConfig.create({
+      data: {
+        version,
+        isActive: true,
+        effectiveAt: new Date(),
+        ...data,
+        createdById,
+      },
+    });
   });
 }
 

@@ -65,11 +65,13 @@ export default function AccountabilityAuditHistory({
   alertHistory = [],
   notificationLogs = [],
   escalations = [],
+  currency = 'CAD',
 }: {
   forecasts?: ForecastRow[];
   alertHistory?: AlertRow[];
   notificationLogs?: NotificationRow[];
   escalations?: EscalationRow[];
+  currency?: string;
 }) {
   return (
     <section>
@@ -146,7 +148,7 @@ export default function AccountabilityAuditHistory({
                     </Table.Td>
                     <Table.Td>{new Date(alert.triggeredAt).toLocaleString()}</Table.Td>
                     <Table.Td>
-                      {formatCurrency(alert.varianceAmount)} ({alert.variancePercent.toFixed(1)}%)
+                      {formatCurrency(alert.varianceAmount, { currency })} ({alert.variancePercent.toFixed(1)}%)
                     </Table.Td>
                     <Table.Td>{alert.status}</Table.Td>
                     <Table.Td>

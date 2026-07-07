@@ -28,6 +28,12 @@ export async function runQuarterlyReminderJob() {
     return { sent: 0, skipped: 'not quarter start month' };
   }
 
+  // Guard on the first day of the quarter-start month so a daily-scheduled job stays
+  // idempotent and does not re-send reminders/summaries every day for the whole month.
+  if (now.getDate() !== 1) {
+    return { sent: 0, skipped: 'not quarter start day' };
+  }
+
   const { fiscalYear, quarter } = getCurrentQuarter(now);
   const products = await prisma.publicCloudProduct.findMany({
     where: { status: ProjectStatus.ACTIVE },

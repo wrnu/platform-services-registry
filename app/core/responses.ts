@@ -2,6 +2,15 @@ import { stringify } from 'csv-stringify/sync';
 import { NextResponse } from 'next/server';
 import * as XLSX from 'xlsx';
 
+// Build a safe Content-Disposition header value. Strips CR/LF, quotes, and backslashes to
+// prevent header injection, quotes the ASCII fallback, and adds an RFC 5987 filename* for
+// clients that support it.
+function contentDispositionAttachment(filename: string) {
+  const sanitized = filename.replace(/[\r\n"\\]/g, '').trim() || 'download';
+  const encoded = encodeURIComponent(sanitized);
+  return `attachment; filename="${sanitized}"; filename*=UTF-8''${encoded}`;
+}
+
 export function CsvResponse<T extends Record<string, any>>(data: T[], filename = 'download.csv') {
   const csv = stringify(data, {
     header: true,
@@ -12,7 +21,7 @@ export function CsvResponse<T extends Record<string, any>>(data: T[], filename =
     status: 200,
     headers: {
       'Content-Type': 'text/csv',
-      'Content-Disposition': `attachment; filename=${filename}`,
+      'Content-Disposition': contentDispositionAttachment(filename),
     },
   });
 
@@ -29,7 +38,7 @@ export function ExcelResponse<T extends Record<string, unknown>>(data: T[], file
     status: 200,
     headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'Content-Disposition': `attachment; filename=${filename}`,
+      'Content-Disposition': contentDispositionAttachment(filename),
     },
   });
 }
@@ -50,7 +59,7 @@ export function PdfResponse(buffer: Buffer, filename = 'download.pdf') {
     status: 200,
     headers: {
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `'attachment; filename=${filename}'`,
+      'Content-Disposition': contentDispositionAttachment(filename),
     },
   });
 

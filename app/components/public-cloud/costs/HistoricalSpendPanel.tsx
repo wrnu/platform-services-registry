@@ -55,12 +55,12 @@ export default function HistoricalSpendPanel({
       </p>
       <div className="mb-4 inline-flex py-3 px-5 bg-zinc-100 border border-gray-300 rounded-md text-sm">
         <strong>Total actual:&nbsp;</strong>
-        {formatCurrency(totalActual)} {currency}
+        {formatCurrency(totalActual, { currency })}
         {totalForecast > 0 && (
           <>
             {' '}
             · <strong>Total forecast:&nbsp;</strong>
-            {formatCurrency(totalForecast)} {currency}
+            {formatCurrency(totalForecast, { currency })}
           </>
         )}
       </div>
@@ -79,10 +79,10 @@ export default function HistoricalSpendPanel({
               <Table.Td>
                 {m.year}-{String(m.month).padStart(2, '0')}
               </Table.Td>
+              <Table.Td>{formatCurrency(m.actualTotal, { currency: m.currency })}</Table.Td>
               <Table.Td>
-                {formatCurrency(m.actualTotal)} {m.currency}
+                {m.forecastTotal != null ? formatCurrency(m.forecastTotal, { currency: m.currency }) : '—'}
               </Table.Td>
-              <Table.Td>{m.forecastTotal != null ? formatCurrency(m.forecastTotal) : '—'}</Table.Td>
               <Table.Td>{m.variancePercent != null ? `${m.variancePercent.toFixed(1)}%` : '—'}</Table.Td>
             </Table.Tr>
           ))}

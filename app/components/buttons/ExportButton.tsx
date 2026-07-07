@@ -8,6 +8,24 @@ import { instance } from '@/services/backend/axios';
 import { downloadFile } from '@/utils/browser';
 import { cn } from '@/utils/js';
 
+// Parse a filename from a Content-Disposition header, preferring the RFC 5987 `filename*`
+// form and falling back to a (possibly quoted) `filename`.
+function parseContentDispositionFilename(disposition?: string): string | undefined {
+  if (!disposition) return undefined;
+
+  const extended = disposition.match(/filename\*=(?:UTF-8'')?([^;]+)/i);
+  if (extended?.[1]) {
+    try {
+      return decodeURIComponent(extended[1].trim());
+    } catch {
+      return extended[1].trim();
+    }
+  }
+
+  const basic = disposition.match(/filename="?([^";]+)"?/i);
+  return basic?.[1]?.trim();
+}
+
 export default function ExportButton({
   onExport,
   className = '',
@@ -55,8 +73,7 @@ export default function ExportButton({
             const success = await instance.get(downloadUrl, { responseType: 'blob' }).then((res) => {
               if (res.status === 204) return false;
               const disposition = res.headers?.['content-disposition'] as string | undefined;
-              const match = disposition?.match(/filename=([^;]+)/);
-              const filename = match?.[1]?.trim() ?? defaultName;
+              const filename = parseContentDispositionFilename(disposition) ?? defaultName;
               downloadFile(res.data, filename, res.headers);
               return true;
             });
