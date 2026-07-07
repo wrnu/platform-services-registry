@@ -1,14 +1,15 @@
 /**
- * Full local dev seed: ministries, users, cost rules, Azure product, accountability demo data.
+ * Full local dev seed: ministries, users, cost rules, demo products, accountability demo data.
  * Run: pnpm run seed-all-local [--reset]
  */
 import prisma from '../core/prisma';
+import { Provider } from '../prisma/client';
 import { seedAccountabilityForProduct } from './seed-accountability-local';
 import {
-  AWS_DEMO_PLATE,
-  AZURE_DEMO_PLATE,
-  seedAwsPublicCloudProduct,
-  seedAzurePublicCloudProduct,
+  AWS_DEMO_PLATES,
+  AZURE_DEMO_PLATES,
+  expectedMonthlyForecastRollup,
+  seedDemoPublicCloudProducts,
 } from './seed-demo-products';
 import { seedFoundation } from './seed-foundation';
 
@@ -20,26 +21,37 @@ async function main() {
   console.log('1. Foundation (organizations, users, cost rules)...');
   await seedFoundation();
 
-  console.log('\n2. Azure public cloud product...');
-  await seedAzurePublicCloudProduct();
+  console.log('\n2. Demo public cloud products (2 Azure + 2 AWS)...');
+  await seedDemoPublicCloudProducts();
 
-  console.log('\n3. AWS public cloud product...');
-  await seedAwsPublicCloudProduct();
+  console.log('\n3. Accountability demo data (CSP, forecast, alerts)...');
+  for (const licencePlate of AZURE_DEMO_PLATES) {
+    await seedAccountabilityForProduct(licencePlate, {
+      reset,
+      showWalkthrough: licencePlate === AZURE_DEMO_PLATES[0],
+    });
+  }
 
-  console.log('\n4. Accountability demo data (CSP, forecast, alerts)...');
-  await seedAccountabilityForProduct(AZURE_DEMO_PLATE, {
-    reset,
-    showWalkthrough: true,
-  });
-
-  console.log('\n5. Accountability demo data for AWS product...');
-  await seedAccountabilityForProduct(AWS_DEMO_PLATE, { reset });
+  for (const licencePlate of AWS_DEMO_PLATES) {
+    await seedAccountabilityForProduct(licencePlate, { reset });
+  }
 
   console.log('\n=== Seed complete ===');
   console.log(`Login: admin.system@gov.bc.ca`);
-  console.log(`Azure product: http://localhost:3000/public-cloud/products/${AZURE_DEMO_PLATE}/edit`);
-  console.log(`AWS product: http://localhost:3000/public-cloud/products/${AWS_DEMO_PLATE}/edit`);
+  console.log('Azure products:');
+  for (const plate of AZURE_DEMO_PLATES) {
+    console.log(`  http://localhost:3000/public-cloud/products/${plate}/edit`);
+  }
+  console.log('AWS products:');
+  for (const plate of AWS_DEMO_PLATES) {
+    console.log(`  http://localhost:3000/public-cloud/products/${plate}/edit`);
+  }
   console.log(`Public Cloud Forecast: http://localhost:3000/public-cloud/accountability/forecast`);
+  console.log(
+    `Expected rollups: Azure CA$${expectedMonthlyForecastRollup(
+      Provider.AZURE,
+    ).toLocaleString()}/mo, AWS $${expectedMonthlyForecastRollup(Provider.AWS).toLocaleString()}/mo`,
+  );
 }
 
 main()

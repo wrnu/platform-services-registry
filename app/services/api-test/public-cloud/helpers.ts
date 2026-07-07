@@ -65,8 +65,10 @@ async function approveAndProvisionRequest(reqData: any) {
   return decisionData;
 }
 
-export async function createPublicCloudProduct() {
-  const requestData = createSamplePublicCloudProductData();
+export async function createPublicCloudProduct(options?: { provider?: import('@/prisma/client').Provider }) {
+  const requestData = createSamplePublicCloudProductData({
+    data: options?.provider ? { provider: options.provider } : undefined,
+  });
   await mockSessionByIdirGuid(requestData.projectOwner.idirGuid);
 
   const response = await createPublicCloudProductTest(requestData);

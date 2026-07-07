@@ -325,6 +325,79 @@ describe('Public Cloud accountability APIs', () => {
       }
     });
 
+    it('sums approved forecasts and actuals across multiple products per currency', async () => {
+      const secondForecastAmount = 4000;
+      const secondActualAmount = 3200;
+
+      const secondProduct = await createPublicCloudProduct({ provider });
+      expect(secondProduct).not.toBeNull();
+      if (!secondProduct) return;
+
+      await mockSessionByIdirGuid(projectOwnerIdirGuid);
+      const createRes = await createPublicCloudForecast(secondProduct.licencePlate, {
+        monthlyValues: buildForecastMonthlyValues(secondForecastAmount, currency, FISCAL_FORECAST_HORIZON_MONTHS),
+        horizonMonths: FISCAL_FORECAST_HORIZON_MONTHS,
+      });
+      expect(createRes.status).toBe(200);
+      const draft = await createRes.json();
+
+      const submitRes = await submitPublicCloudForecast(secondProduct.licencePlate, draft.id);
+      expect(submitRes.status).toBe(200);
+
+      await mockSessionByRole(GlobalRole.BillingReviewer);
+      const approveRes = await approvePublicCloudForecast(secondProduct.licencePlate, draft.id);
+      expect(approveRes.status).toBe(200);
+
+      await mockTeamServiceAccount(['service-account']);
+      const closedMonth = new Date();
+      closedMonth.setMonth(closedMonth.getMonth() - 1);
+      const historyRes = await putCspConsumptionHistory({
+        licencePlate: secondProduct.licencePlate,
+        provider,
+        months: [
+          {
+            billingPeriod: {
+              year: closedMonth.getFullYear(),
+              month: closedMonth.getMonth() + 1,
+            },
+            currency,
+            actualTotal: secondActualAmount,
+            forecastTotal: secondForecastAmount,
+            varianceAmount: secondActualAmount - secondForecastAmount,
+            variancePercent: ((secondActualAmount - secondForecastAmount) / secondForecastAmount) * 100,
+          },
+        ],
+      });
+      expect(historyRes.status).toBe(200);
+
+      await mockSessionByRole(GlobalRole.BillingReviewer);
+      const response = await getPublicCloudPlatformForecast();
+      expect(response.status).toBe(200);
+
+      const summary = await response.json();
+      const group = summary.groups.find((g: { currency: string }) => g.currency === currency);
+      expect(group).toBeTruthy();
+      expect(group.productCount).toBe(2);
+      expect(group.forecastCount).toBe(2);
+
+      const now = new Date();
+      const currentMonth = group.monthlyTotals.find(
+        (v: { year: number; month: number }) => v.year === now.getFullYear() && v.month === now.getMonth() + 1,
+      );
+      // First product approved at 6000/month; second at 4000/month.
+      expect(currentMonth?.amount).toBe(6000 + secondForecastAmount);
+
+      const previousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const previousMonthIndex = group.monthlyTotals.findIndex(
+        (v: { year: number; month: number }) =>
+          v.year === previousMonth.getFullYear() && v.month === previousMonth.getMonth() + 1,
+      );
+      if (previousMonthIndex >= 0) {
+        // First product history is 4800; second product history is 3200.
+        expect(group.monthlyActuals[previousMonthIndex]).toBe(4800 + secondActualAmount);
+      }
+    });
+
     it('rejects users without accountability access', async () => {
       await mockSessionByRole(GlobalRole.PrivateReader);
       const response = await getPublicCloudPlatformForecast();
