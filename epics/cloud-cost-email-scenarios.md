@@ -21,6 +21,7 @@ Templates live in `app/emails/_templates/public-cloud/`. Send logic: `app/servic
 | 11 — Forecast rejected          | `ForecastRejected.tsx`                    | Done   |
 | 12 — Non-compliance summary     | `NonComplianceSummary.tsx`                | Done   |
 | 13 — Pre-emptive notice (A0)    | `PreemptiveThresholdNotice.tsx`           | Done   |
+| 14 — Escalation list summary    | `EscalationListSummary.tsx`               | Done   |
 
 ## Scenario 1: Quarterly forecast update reminder
 
@@ -156,10 +157,23 @@ flowchart LR
 
 **Template:** `ForecastSubmitted.tsx` (implemented)
 
+## Scenario 14: Escalation list summary (CR-24)
+
+**Trigger:** After quarterly reminder job and after M+1 escalation job (when any products are on the escalation list)
+**Recipients:** `escalationListEmails` on cost-rules (fallback: Public Admin + Admin Keycloak roles)
+
+**Content:**
+
+-   Period label (month and year)
+-   Table of products with `onEscalationList`, accountability status, and highest open alert
+-   Link to compliance list in Registry
+
+**Template:** `EscalationListSummary.tsx`
+
 ## Implementation notes
 
 -   CHES integration: `app/services/ches/public-cloud/accountability-emails.ts`
--   **Admin / escalation routing (to be solved):** non-project recipients are hardcoded Keycloak global roles today, not configurable on the cost-rules page. Policy gap and options: [rules config — notification routing](./cloud-cost-rules-config.md#to-be-solved-admin-and-escalation-notification-routing)
+-   **Admin / escalation routing:** configurable on the cost-rules page (`notificationRouting` on `CloudCostRulesConfig`); see [rules config — notification routing](./cloud-cost-rules-config.md#notification-routing)
 -   Notification audit history (Story 7.5): **implemented** — all accountability CHES sends logged to `AccountabilityNotificationLog`; audit UI at `/public-cloud/accountability/audit`
 -   Pre-emptive notice (CR-39 / A0): `PreemptiveThresholdNotice.tsx` on CSP consumption ingest
 -   React Email previews: templates under `app/emails/_templates/public-cloud/`
