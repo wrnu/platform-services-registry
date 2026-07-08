@@ -14,7 +14,41 @@ function monthlyBudgetTotal(budget: DemoProductConfig['budget']) {
   return budget.dev + budget.test + budget.prod + budget.tools;
 }
 
-export const DEMO_AZURE_PRODUCTS: DemoProductConfig[] = [
+function generatedDemoProducts({
+  prefix,
+  count,
+  startIndex,
+  provider,
+  providerLabel,
+  baseBudget,
+}: {
+  prefix: string;
+  count: number;
+  startIndex: number;
+  provider: Provider.AZURE | Provider.AWS_LZA;
+  providerLabel: string;
+  baseBudget: DemoProductConfig['budget'];
+}): DemoProductConfig[] {
+  return Array.from({ length: count }, (_, offset) => {
+    const index = startIndex + offset;
+    const budgetStep = (index % 8) + 1;
+
+    return {
+      licencePlate: `${prefix}${String(index).padStart(4, '0')}`,
+      name: `Cost Model Scale Test ${index} (${providerLabel})`,
+      provider,
+      description: `Generated local seed ${providerLabel} product for large forecast rollup testing.`,
+      budget: {
+        dev: baseBudget.dev + budgetStep * 100,
+        test: baseBudget.test + budgetStep * 100,
+        prod: baseBudget.prod + budgetStep * 250,
+        tools: baseBudget.tools + budgetStep * 50,
+      },
+    };
+  });
+}
+
+const BASE_AZURE_PRODUCTS: DemoProductConfig[] = [
   {
     licencePlate: 'e71b0e',
     name: 'Cost Model Test 1',
@@ -31,7 +65,7 @@ export const DEMO_AZURE_PRODUCTS: DemoProductConfig[] = [
   },
 ];
 
-export const DEMO_AWS_PRODUCTS: DemoProductConfig[] = [
+const BASE_AWS_PRODUCTS: DemoProductConfig[] = [
   {
     licencePlate: 'f82c1a',
     name: 'Cost Model Test 2 (AWS LZA)',
@@ -46,6 +80,30 @@ export const DEMO_AWS_PRODUCTS: DemoProductConfig[] = [
     description: 'Second local seed AWS LZA product to exercise multi-project forecast rollups.',
     budget: { dev: 6000, test: 5000, prod: 10000, tools: 2000 },
   },
+];
+
+export const DEMO_AZURE_PRODUCTS: DemoProductConfig[] = [
+  ...BASE_AZURE_PRODUCTS,
+  ...generatedDemoProducts({
+    prefix: 'aa',
+    count: 53,
+    startIndex: 1,
+    provider: Provider.AZURE,
+    providerLabel: 'Azure',
+    baseBudget: { dev: 2500, test: 2000, prod: 5000, tools: 1000 },
+  }),
+];
+
+export const DEMO_AWS_PRODUCTS: DemoProductConfig[] = [
+  ...BASE_AWS_PRODUCTS,
+  ...generatedDemoProducts({
+    prefix: 'bb',
+    count: 53,
+    startIndex: 1,
+    provider: Provider.AWS_LZA,
+    providerLabel: 'AWS LZA',
+    baseBudget: { dev: 2000, test: 1800, prod: 4500, tools: 900 },
+  }),
 ];
 
 export const DEMO_PRODUCTS = [...DEMO_AZURE_PRODUCTS, ...DEMO_AWS_PRODUCTS];

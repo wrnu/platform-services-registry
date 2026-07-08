@@ -21,7 +21,9 @@ async function main() {
   console.log('1. Foundation (organizations, users, cost rules)...');
   await seedFoundation();
 
-  console.log('\n2. Demo public cloud products (2 Azure + 2 AWS LZA)...');
+  console.log(
+    `\n2. Demo public cloud products (${AZURE_DEMO_PLATES.length} Azure + ${AWS_DEMO_PLATES.length} AWS LZA)...`,
+  );
   await seedDemoPublicCloudProducts();
 
   console.log('\n3. Accountability demo data (CSP, forecast, alerts)...');

@@ -1,10 +1,10 @@
 'use client';
 
-import { Button } from '@mantine/core';
+import { Button, Checkbox, Select, TextInput } from '@mantine/core';
 import { IconChevronDown, IconChevronRight } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import ExportButton from '@/components/buttons/ExportButton';
 import LoadingBox from '@/components/generic/LoadingBox';
 import {
@@ -25,6 +25,11 @@ import { GlobalPermissions } from '@/constants';
 import createClientPage from '@/core/client-page';
 import { downloadPlatformForecastExport, getPlatformForecast } from '@/services/backend/public-cloud/accountability';
 import { PlatformForecastProduct, PlatformForecastSummary } from '@/services/db/public-cloud-accountability';
+
+const DEFAULT_PRODUCT_LIMIT = 10;
+const PRODUCT_LIMIT_INCREMENT = 10;
+
+type ProductSort = 'forecast-desc' | 'variance-desc' | 'name-asc';
 
 function SummaryCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
@@ -63,8 +68,44 @@ function productChunkValues(product: PlatformForecastProduct, fyChunk: FiscalYea
   return { forecasts, actuals, variances };
 }
 
+function matchesProductSearch(product: PlatformForecastProduct, search: string) {
+  const term = search.trim().toLowerCase();
+  if (!term) return true;
+  return product.name.toLowerCase().includes(term) || product.licencePlate.toLowerCase().includes(term);
+}
+
+function sortProducts(products: PlatformForecastProduct[], sort: ProductSort) {
+  return [...products].sort((a, b) => {
+    if (sort === 'name-asc') {
+      return a.name.localeCompare(b.name) || a.licencePlate.localeCompare(b.licencePlate);
+    }
+
+    if (sort === 'variance-desc') {
+      return Math.abs(b.varianceToDate ?? 0) - Math.abs(a.varianceToDate ?? 0) || a.name.localeCompare(b.name);
+    }
+
+    return b.forecastTotal - a.forecastTotal || a.name.localeCompare(b.name);
+  });
+}
+
+function sumNullable(values: (number | null)[]) {
+  return values.reduce<number>((sum, value) => sum + (value ?? 0), 0);
+}
+
+function formatResidualAmount(amount: number, currency: string) {
+  return Math.abs(amount) < 0.005 ? '—' : formatForecastAmount(amount, currency);
+}
+
+function formatResidualVariance(amount: number, currency: string) {
+  return Math.abs(amount) < 0.005 ? '—' : formatVariance(amount, currency);
+}
+
 function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['groups'][number] }) {
   const [showProducts, setShowProducts] = useState(false);
+  const [productSearch, setProductSearch] = useState('');
+  const [productSort, setProductSort] = useState<ProductSort>('forecast-desc');
+  const [missingOnly, setMissingOnly] = useState(false);
+  const [productLimit, setProductLimit] = useState(DEFAULT_PRODUCT_LIMIT);
   const values = group.monthlyTotals as MonthlyValue[];
   const actuals = group.monthlyActuals;
   const fiscalYearChunks = getFiscalYearChunks(values);
@@ -73,9 +114,22 @@ function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['group
   const forecastForActualMonths = values.reduce((sum, v, i) => (actuals[i] != null ? sum + v.amount : sum), 0);
   const hasActuals = actuals.some((v) => v != null);
   const spendLabel = group.providers.length === 1 ? getProviderSpendLabel(group.providers[0]) : 'Cloud Spend';
-  const lineItemProducts = group.products.filter(
-    (product) => product.hasForecast || product.monthlyActuals.some((v) => v != null),
+  const lineItemProducts = group.products.filter((product) =>
+    missingOnly ? !product.hasForecast : product.hasForecast || product.monthlyActuals.some((v) => v != null),
   );
+  const searchedProducts = sortProducts(
+    lineItemProducts.filter((product) => matchesProductSearch(product, productSearch)),
+    productSort,
+  );
+  const visibleProducts = searchedProducts.slice(0, productLimit);
+  const otherProductCount = Math.max(group.products.length - visibleProducts.length, 0);
+  const hiddenMatchingProductCount = Math.max(searchedProducts.length - visibleProducts.length, 0);
+  const canShowMoreProducts = hiddenMatchingProductCount > 0;
+  const showOtherRow = showProducts && otherProductCount > 0;
+
+  useEffect(() => {
+    setProductLimit(DEFAULT_PRODUCT_LIMIT);
+  }, [productSearch, productSort, missingOnly]);
 
   return (
     <div className="space-y-4">
@@ -96,9 +150,82 @@ function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['group
           leftSection={showProducts ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
           onClick={() => setShowProducts((value) => !value)}
         >
-          {showProducts ? 'Hide products' : `Show products (${lineItemProducts.length})`}
+          {showProducts ? 'Hide products' : `Show products (${group.products.length})`}
         </Button>
       </div>
+
+      {showProducts && (
+        <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-3">
+          <div className="grid gap-3 lg:grid-cols-[minmax(220px,1fr)_220px_auto] lg:items-end">
+            <TextInput
+              label="Find product"
+              placeholder="Search name or licence plate"
+              value={productSearch}
+              onChange={(event) => setProductSearch(event.currentTarget.value)}
+            />
+            <Select
+              label="Sort products"
+              value={productSort}
+              onChange={(value) => setProductSort((value as ProductSort) ?? 'forecast-desc')}
+              data={[
+                { value: 'forecast-desc', label: 'Largest forecast total' },
+                { value: 'variance-desc', label: 'Largest variance' },
+                { value: 'name-asc', label: 'Name A-Z' },
+              ]}
+              allowDeselect={false}
+            />
+            <Checkbox
+              label="Missing forecast only"
+              checked={missingOnly}
+              onChange={(event) => setMissingOnly(event.currentTarget.checked)}
+              className="pb-2"
+            />
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-gray-600">
+              Showing {visibleProducts.length} of {searchedProducts.length} matching products
+              {otherProductCount > 0
+                ? `; Other (${otherProductCount}) includes non-visible products so the rows still sum to totals.`
+                : '.'}{' '}
+              Export includes all products.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {canShowMoreProducts && (
+                <Button
+                  variant="light"
+                  color="gray"
+                  size="compact-xs"
+                  onClick={() =>
+                    setProductLimit((limit) => Math.min(limit + PRODUCT_LIMIT_INCREMENT, searchedProducts.length))
+                  }
+                >
+                  Show 10 more
+                </Button>
+              )}
+              {canShowMoreProducts && (
+                <Button
+                  variant="light"
+                  color="gray"
+                  size="compact-xs"
+                  onClick={() => setProductLimit(searchedProducts.length)}
+                >
+                  Show all
+                </Button>
+              )}
+              {visibleProducts.length > DEFAULT_PRODUCT_LIMIT && (
+                <Button
+                  variant="subtle"
+                  color="gray"
+                  size="compact-xs"
+                  onClick={() => setProductLimit(DEFAULT_PRODUCT_LIMIT)}
+                >
+                  Show first 10
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="space-y-6">
         {fiscalYearChunks.map((fyChunk, chunkIndex) => {
@@ -151,7 +278,7 @@ function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['group
                       </tr>
                     )}
                     {showProducts &&
-                      lineItemProducts.map((product) => {
+                      visibleProducts.map((product) => {
                         const { forecasts } = productChunkValues(product, fyChunk);
                         const productYearTotal = forecasts.reduce<number>((sum, v) => sum + (v ?? 0), 0);
                         const hasAnyForecast = forecasts.some((v) => v != null && v !== 0) || product.hasForecast;
@@ -184,6 +311,42 @@ function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['group
                           </tr>
                         );
                       })}
+                    {showOtherRow && (
+                      <tr className="border-b border-gray-100 bg-gray-50">
+                        <td className="px-3 py-2 sticky left-0 bg-gray-50 border-r border-gray-100">
+                          <div className="pl-3 text-gray-700 font-medium">Other ({otherProductCount} products)</div>
+                        </td>
+                        {fyChunk.months.map((month, i) => {
+                          const visibleTotal = visibleProducts.reduce((sum, product) => {
+                            if (!product.hasForecast) return sum;
+                            return sum + (product.monthlyTotals[fyChunk.startIndex + i]?.amount ?? 0);
+                          }, 0);
+                          const residual = month.amount - visibleTotal;
+                          return (
+                            <td key={monthKey(month.year, month.month)} className="px-2 py-2 text-center text-gray-700">
+                              {formatResidualAmount(residual, group.currency)}
+                            </td>
+                          );
+                        })}
+                        <td className="px-3 py-2 text-center bg-amber-50/60 text-gray-800">
+                          {formatResidualAmount(
+                            yearTotal -
+                              visibleProducts.reduce((sum, product) => {
+                                if (!product.hasForecast) return sum;
+                                return (
+                                  sum +
+                                  fyChunk.months.reduce(
+                                    (monthSum, _, i) =>
+                                      monthSum + (product.monthlyTotals[fyChunk.startIndex + i]?.amount ?? 0),
+                                    0,
+                                  )
+                                );
+                              }, 0),
+                            group.currency,
+                          )}
+                        </td>
+                      </tr>
+                    )}
                     <tr className={`border-b border-gray-100 ${showProducts ? 'bg-amber-50/40 font-semibold' : ''}`}>
                       <td className="px-3 py-2 text-gray-700 sticky left-0 bg-inherit border-r border-gray-100">
                         {showProducts ? 'Forecast total' : 'Forecast'}
@@ -214,7 +377,7 @@ function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['group
                       </tr>
                     )}
                     {showProducts &&
-                      lineItemProducts.map((product) => {
+                      visibleProducts.map((product) => {
                         const { actuals: productActuals } = productChunkValues(product, fyChunk);
                         const productHasActuals = productActuals.some((v) => v != null);
                         const productActualTotal = productActuals.reduce<number>((sum, v) => sum + (v ?? 0), 0);
@@ -242,6 +405,44 @@ function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['group
                           </tr>
                         );
                       })}
+                    {showOtherRow && (
+                      <tr className="border-b border-gray-100 bg-gray-50">
+                        <td className="px-3 py-2 sticky left-0 bg-gray-50 border-r border-gray-100">
+                          <div className="pl-3 text-gray-700 font-medium">Other ({otherProductCount} products)</div>
+                        </td>
+                        {fyChunk.months.map((month, i) => {
+                          const actual = chunkActuals[i];
+                          const visibleTotal = visibleProducts.reduce(
+                            (sum, product) => sum + (product.monthlyActuals[fyChunk.startIndex + i] ?? 0),
+                            0,
+                          );
+                          const residual = actual != null ? actual - visibleTotal : null;
+                          return (
+                            <td key={monthKey(month.year, month.month)} className="px-2 py-2 text-center text-gray-700">
+                              {residual != null ? formatResidualAmount(residual, group.currency) : '—'}
+                            </td>
+                          );
+                        })}
+                        <td className="px-3 py-2 text-center text-gray-800">
+                          {chunkHasActuals
+                            ? formatResidualAmount(
+                                chunkActualTotal -
+                                  visibleProducts.reduce(
+                                    (sum, product) =>
+                                      sum +
+                                      fyChunk.months.reduce(
+                                        (monthSum, _, i) =>
+                                          monthSum + (product.monthlyActuals[fyChunk.startIndex + i] ?? 0),
+                                        0,
+                                      ),
+                                    0,
+                                  ),
+                                group.currency,
+                              )
+                            : '—'}
+                        </td>
+                      </tr>
+                    )}
                     <tr className={`border-b border-gray-100 ${showProducts ? 'bg-amber-50/40 font-semibold' : ''}`}>
                       <td className="px-3 py-2 text-gray-700 sticky left-0 bg-inherit border-r border-gray-100">
                         {showProducts ? 'Actual total' : 'Actual'}
@@ -272,7 +473,7 @@ function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['group
                       </tr>
                     )}
                     {showProducts &&
-                      lineItemProducts.map((product) => {
+                      visibleProducts.map((product) => {
                         const { variances } = productChunkValues(product, fyChunk);
                         const productHasVariance = variances.some((v) => v != null);
                         const productVarianceTotal = variances.reduce<number>((sum, v) => sum + (v ?? 0), 0);
@@ -302,6 +503,51 @@ function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['group
                           </tr>
                         );
                       })}
+                    {showOtherRow && (
+                      <tr className="border-b border-gray-100 bg-gray-50">
+                        <td className="px-3 py-2 sticky left-0 bg-gray-50 border-r border-gray-100">
+                          <div className="pl-3 text-gray-700 font-medium">Other ({otherProductCount} products)</div>
+                        </td>
+                        {fyChunk.months.map((month, i) => {
+                          const actual = chunkActuals[i];
+                          const totalVariance = actual != null ? actual - month.amount : null;
+                          const visibleTotal = visibleProducts.reduce((sum, product) => {
+                            const forecast = product.hasForecast
+                              ? product.monthlyTotals[fyChunk.startIndex + i]?.amount ?? 0
+                              : null;
+                            const productActual = product.monthlyActuals[fyChunk.startIndex + i];
+                            return productActual != null && forecast != null ? sum + productActual - forecast : sum;
+                          }, 0);
+                          const residual = totalVariance != null ? totalVariance - visibleTotal : null;
+                          return (
+                            <td
+                              key={monthKey(month.year, month.month)}
+                              className={`px-2 py-2 text-center whitespace-nowrap ${
+                                residual != null ? varianceClass(residual) : 'text-gray-400'
+                              }`}
+                            >
+                              {residual != null ? formatResidualVariance(residual, group.currency) : '—'}
+                            </td>
+                          );
+                        })}
+                        <td
+                          className={`px-3 py-2 text-center whitespace-nowrap ${
+                            chunkHasActuals ? varianceClass(chunkVarianceTotal) : 'text-gray-400'
+                          }`}
+                        >
+                          {chunkHasActuals
+                            ? formatResidualVariance(
+                                chunkVarianceTotal -
+                                  visibleProducts.reduce((sum, product) => {
+                                    const { variances } = productChunkValues(product, fyChunk);
+                                    return sum + sumNullable(variances);
+                                  }, 0),
+                                group.currency,
+                              )
+                            : '—'}
+                        </td>
+                      </tr>
+                    )}
                     <tr className={showProducts ? 'bg-amber-50/40 font-semibold' : ''}>
                       <td className="px-3 py-2 text-gray-700 sticky left-0 bg-inherit border-r border-gray-100">
                         {showProducts ? 'Variance total' : 'Variance'}
