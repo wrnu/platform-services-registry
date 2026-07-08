@@ -74,6 +74,7 @@
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
     "dayjs": "^1.11.13",
+    "exceljs": "^4.4.0",
     "https-proxy-agent": "^9.0.0",
     "jsonwebtoken": "^9.0.2",
     "just-diff": "^6.0.2",

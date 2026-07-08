@@ -1,6 +1,11 @@
 'use client';
 
+import { Button } from '@mantine/core';
+import { IconChevronDown, IconChevronRight } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
+import Link from 'next/link';
+import { useState } from 'react';
+import ExportButton from '@/components/buttons/ExportButton';
 import LoadingBox from '@/components/generic/LoadingBox';
 import {
   formatForecastAmount,
@@ -8,18 +13,18 @@ import {
   getAdjacentFiscalYearPercentChange,
   getFiscalYearChunks,
   getProviderSpendLabel,
-  isInProgressFiscalYear,
   isPastMonth,
   monthKey,
   shortMonthLabel,
   sumMonthlyValues,
   yearRangeLabel,
+  type FiscalYearChunk,
   type MonthlyValue,
 } from '@/components/public-cloud/accountability/forecast-grid-utils';
 import { GlobalPermissions } from '@/constants';
 import createClientPage from '@/core/client-page';
-import { getPlatformForecast } from '@/services/backend/public-cloud/accountability';
-import { PlatformForecastSummary } from '@/services/db/public-cloud-accountability';
+import { downloadPlatformForecastExport, getPlatformForecast } from '@/services/backend/public-cloud/accountability';
+import { PlatformForecastProduct, PlatformForecastSummary } from '@/services/db/public-cloud-accountability';
 
 function SummaryCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
@@ -47,7 +52,19 @@ function varianceClass(variance: number) {
   return 'text-gray-600';
 }
 
+function productChunkValues(product: PlatformForecastProduct, fyChunk: FiscalYearChunk) {
+  const forecasts = fyChunk.months.map((_, i) =>
+    product.hasForecast ? product.monthlyTotals[fyChunk.startIndex + i]?.amount ?? 0 : null,
+  );
+  const actuals = fyChunk.months.map((_, i) => product.monthlyActuals[fyChunk.startIndex + i] ?? null);
+  const variances = fyChunk.months.map((_, i) =>
+    actuals[i] != null && forecasts[i] != null ? actuals[i]! - forecasts[i]! : null,
+  );
+  return { forecasts, actuals, variances };
+}
+
 function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['groups'][number] }) {
+  const [showProducts, setShowProducts] = useState(false);
   const values = group.monthlyTotals as MonthlyValue[];
   const actuals = group.monthlyActuals;
   const fiscalYearChunks = getFiscalYearChunks(values);
@@ -56,23 +73,36 @@ function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['group
   const forecastForActualMonths = values.reduce((sum, v, i) => (actuals[i] != null ? sum + v.amount : sum), 0);
   const hasActuals = actuals.some((v) => v != null);
   const spendLabel = group.providers.length === 1 ? getProviderSpendLabel(group.providers[0]) : 'Cloud Spend';
+  const lineItemProducts = group.products.filter(
+    (product) => product.hasForecast || product.monthlyActuals.some((v) => v != null),
+  );
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold">
-          {spendLabel} ({group.currency})
-        </h2>
-        <p className="text-sm text-gray-600">
-          {group.forecastCount} of {group.productCount} {group.providers.join(' / ')} products have an approved forecast
-          included in these totals. Actuals are closed-month spend reported by the cloud service provider.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">
+            {spendLabel} ({group.currency})
+          </h2>
+          <p className="text-sm text-gray-600">
+            {group.forecastCount} of {group.productCount} {group.providers.join(' / ')} products have an approved
+            forecast included in these totals. Actuals are closed-month spend reported by the cloud service provider.
+          </p>
+        </div>
+        <Button
+          variant="light"
+          color="gray"
+          size="compact-sm"
+          leftSection={showProducts ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
+          onClick={() => setShowProducts((value) => !value)}
+        >
+          {showProducts ? 'Hide products' : `Show products (${lineItemProducts.length})`}
+        </Button>
       </div>
 
       <div className="space-y-6">
         {fiscalYearChunks.map((fyChunk, chunkIndex) => {
           const yearTotal = sumMonthlyValues(fyChunk.months);
-          const showYearTotal = !isInProgressFiscalYear(fyChunk);
           const yoy = getAdjacentFiscalYearPercentChange(fiscalYearChunks, chunkIndex);
           const chunkActuals = fyChunk.months.map((_, i) => actuals[fyChunk.startIndex + i] ?? null);
           const chunkHasActuals = chunkActuals.some((v) => v != null);
@@ -88,7 +118,7 @@ function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['group
                 <span>
                   {fyChunk.label} <span className="font-normal text-gray-500">({yearRangeLabel(fyChunk.months)})</span>
                 </span>
-                {showYearTotal && yoy != null && (
+                {yoy != null && (
                   <span className={`text-xs font-normal ${yoy > 0 ? 'text-red-600' : 'text-green-600'}`}>
                     {formatPercentChange(yoy)} vs prior fiscal year
                   </span>
@@ -98,47 +128,123 @@ function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['group
                 <table className="w-full min-w-[720px] text-sm">
                   <thead>
                     <tr className="border-b border-gray-200">
-                      <th className="px-3 py-2 text-left text-gray-500 w-28 sticky left-0 bg-white">{spendLabel}</th>
+                      <th className="px-3 py-2 text-left text-gray-500 min-w-48 sticky left-0 bg-white">
+                        {spendLabel}
+                      </th>
                       {fyChunk.months.map((v) => (
                         <th key={monthKey(v.year, v.month)} className="px-2 py-2 text-center text-gray-500 font-medium">
                           {shortMonthLabel(v.year, v.month)}
                         </th>
                       ))}
-                      <th
-                        className={`px-3 py-2 text-center font-semibold ${
-                          showYearTotal ? 'bg-amber-50 text-gray-800' : 'bg-gray-50 text-gray-400'
-                        }`}
-                      >
-                        TOTAL
-                      </th>
+                      <th className="px-3 py-2 text-center font-semibold bg-amber-50 text-gray-800">TOTAL</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr className="border-b border-gray-100">
-                      <td className="px-3 py-2 text-gray-600 sticky left-0 bg-white border-r border-gray-100">
-                        Forecast
+                    {showProducts && (
+                      <tr className="border-b border-gray-100 bg-gray-50/80">
+                        <td
+                          colSpan={fyChunk.months.length + 2}
+                          className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500 sticky left-0"
+                        >
+                          Forecast by product
+                        </td>
+                      </tr>
+                    )}
+                    {showProducts &&
+                      lineItemProducts.map((product) => {
+                        const { forecasts } = productChunkValues(product, fyChunk);
+                        const productYearTotal = forecasts.reduce<number>((sum, v) => sum + (v ?? 0), 0);
+                        const hasAnyForecast = forecasts.some((v) => v != null && v !== 0) || product.hasForecast;
+                        return (
+                          <tr key={`forecast-${product.licencePlate}`} className="border-b border-gray-100">
+                            <td className="px-3 py-2 sticky left-0 bg-white border-r border-gray-100">
+                              <Link
+                                href={`/public-cloud/products/${product.licencePlate}/edit`}
+                                className="block hover:underline"
+                              >
+                                <div className="pl-3 text-gray-800">{product.name}</div>
+                                <div className="pl-3 text-xs text-gray-400">{product.licencePlate}</div>
+                              </Link>
+                            </td>
+                            {fyChunk.months.map((v, i) => (
+                              <td
+                                key={monthKey(v.year, v.month)}
+                                className={`px-2 py-2 text-center ${
+                                  isPastMonth(v.year, v.month) ? 'bg-gray-50 text-gray-500' : 'text-gray-700'
+                                }`}
+                              >
+                                {forecasts[i] != null && hasAnyForecast
+                                  ? formatForecastAmount(forecasts[i]!, group.currency)
+                                  : '—'}
+                              </td>
+                            ))}
+                            <td className="px-3 py-2 text-center bg-amber-50/60 text-gray-800">
+                              {hasAnyForecast ? formatForecastAmount(productYearTotal, group.currency) : '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    <tr className={`border-b border-gray-100 ${showProducts ? 'bg-amber-50/40 font-semibold' : ''}`}>
+                      <td className="px-3 py-2 text-gray-700 sticky left-0 bg-inherit border-r border-gray-100">
+                        {showProducts ? 'Forecast total' : 'Forecast'}
                       </td>
                       {fyChunk.months.map((v) => (
                         <td
                           key={monthKey(v.year, v.month)}
                           className={`px-2 py-2 text-center ${
-                            isPastMonth(v.year, v.month) ? 'bg-gray-100 text-gray-500' : 'bg-white text-gray-900'
+                            isPastMonth(v.year, v.month) ? 'bg-gray-100 text-gray-500' : 'bg-inherit text-gray-900'
                           }`}
                         >
                           {formatForecastAmount(v.amount, group.currency)}
                         </td>
                       ))}
-                      {showYearTotal ? (
-                        <td className="px-3 py-2 text-center font-bold bg-amber-50 text-gray-900">
-                          {formatForecastAmount(yearTotal, group.currency)}
-                        </td>
-                      ) : (
-                        <td className="px-3 py-2 text-center text-sm bg-gray-50 text-gray-400">In progress</td>
-                      )}
+                      <td className="px-3 py-2 text-center font-bold bg-amber-50 text-gray-900">
+                        {formatForecastAmount(yearTotal, group.currency)}
+                      </td>
                     </tr>
-                    <tr className="border-b border-gray-100">
-                      <td className="px-3 py-2 text-gray-600 sticky left-0 bg-white border-r border-gray-100">
-                        Actual
+
+                    {showProducts && (
+                      <tr className="border-b border-gray-100 bg-gray-50/80">
+                        <td
+                          colSpan={fyChunk.months.length + 2}
+                          className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500 sticky left-0"
+                        >
+                          Actual by product
+                        </td>
+                      </tr>
+                    )}
+                    {showProducts &&
+                      lineItemProducts.map((product) => {
+                        const { actuals: productActuals } = productChunkValues(product, fyChunk);
+                        const productHasActuals = productActuals.some((v) => v != null);
+                        const productActualTotal = productActuals.reduce<number>((sum, v) => sum + (v ?? 0), 0);
+                        return (
+                          <tr key={`actual-${product.licencePlate}`} className="border-b border-gray-100">
+                            <td className="px-3 py-2 sticky left-0 bg-white border-r border-gray-100">
+                              <div className="pl-3 text-gray-800">{product.name}</div>
+                              <div className="pl-3 text-xs text-gray-400">{product.licencePlate}</div>
+                            </td>
+                            {fyChunk.months.map((v, i) => (
+                              <td
+                                key={monthKey(v.year, v.month)}
+                                className={`px-2 py-2 text-center ${
+                                  productActuals[i] != null ? 'text-gray-700' : 'text-gray-400'
+                                }`}
+                              >
+                                {productActuals[i] != null
+                                  ? formatForecastAmount(productActuals[i]!, group.currency)
+                                  : '—'}
+                              </td>
+                            ))}
+                            <td className="px-3 py-2 text-center text-gray-800">
+                              {productHasActuals ? formatForecastAmount(productActualTotal, group.currency) : '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    <tr className={`border-b border-gray-100 ${showProducts ? 'bg-amber-50/40 font-semibold' : ''}`}>
+                      <td className="px-3 py-2 text-gray-700 sticky left-0 bg-inherit border-r border-gray-100">
+                        {showProducts ? 'Actual total' : 'Actual'}
                       </td>
                       {fyChunk.months.map((v, i) => (
                         <td
@@ -154,9 +260,51 @@ function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['group
                         {chunkHasActuals ? formatForecastAmount(chunkActualTotal, group.currency) : '—'}
                       </td>
                     </tr>
-                    <tr>
-                      <td className="px-3 py-2 text-gray-600 sticky left-0 bg-white border-r border-gray-100">
-                        Variance
+
+                    {showProducts && (
+                      <tr className="border-b border-gray-100 bg-gray-50/80">
+                        <td
+                          colSpan={fyChunk.months.length + 2}
+                          className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500 sticky left-0"
+                        >
+                          Variance by product
+                        </td>
+                      </tr>
+                    )}
+                    {showProducts &&
+                      lineItemProducts.map((product) => {
+                        const { variances } = productChunkValues(product, fyChunk);
+                        const productHasVariance = variances.some((v) => v != null);
+                        const productVarianceTotal = variances.reduce<number>((sum, v) => sum + (v ?? 0), 0);
+                        return (
+                          <tr key={`variance-${product.licencePlate}`} className="border-b border-gray-100">
+                            <td className="px-3 py-2 sticky left-0 bg-white border-r border-gray-100">
+                              <div className="pl-3 text-gray-800">{product.name}</div>
+                              <div className="pl-3 text-xs text-gray-400">{product.licencePlate}</div>
+                            </td>
+                            {fyChunk.months.map((v, i) => (
+                              <td
+                                key={monthKey(v.year, v.month)}
+                                className={`px-2 py-2 text-center whitespace-nowrap ${
+                                  variances[i] != null ? varianceClass(variances[i]!) : 'text-gray-400'
+                                }`}
+                              >
+                                {variances[i] != null ? formatVariance(variances[i]!, group.currency) : '—'}
+                              </td>
+                            ))}
+                            <td
+                              className={`px-3 py-2 text-center whitespace-nowrap ${
+                                productHasVariance ? varianceClass(productVarianceTotal) : 'text-gray-400'
+                              }`}
+                            >
+                              {productHasVariance ? formatVariance(productVarianceTotal, group.currency) : '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    <tr className={showProducts ? 'bg-amber-50/40 font-semibold' : ''}>
+                      <td className="px-3 py-2 text-gray-700 sticky left-0 bg-inherit border-r border-gray-100">
+                        {showProducts ? 'Variance total' : 'Variance'}
                       </td>
                       {fyChunk.months.map((v, i) => {
                         const actual = chunkActuals[i];
@@ -235,13 +383,16 @@ export default publicCloudForecastPage(() => {
   return (
     <LoadingBox isLoading={isLoading}>
       <div className="space-y-6 p-4">
-        <div>
-          <h1 className="text-2xl font-bold">Public Cloud Forecast</h1>
-          <p className="text-sm text-gray-600 mt-1">
-            Read-only rollup of the latest approved forecast for every active public cloud product, with closed-month
-            actuals and variance. AWS forecasts are in USD and Azure forecasts in CAD, so totals are reported per
-            currency.
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold">Public Cloud Forecast</h1>
+            <p className="text-sm text-gray-600 mt-1">
+              Read-only rollup of the latest approved forecast for every active public cloud product, with closed-month
+              actuals and variance. AWS forecasts are in USD and Azure forecasts in CAD, so totals are reported per
+              currency.
+            </p>
+          </div>
+          <ExportButton onExport={() => downloadPlatformForecastExport()} />
         </div>
 
         <div className="grid gap-4 sm:grid-cols-3">

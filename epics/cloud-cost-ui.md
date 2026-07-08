@@ -29,12 +29,12 @@ User-facing labels (nav menu and page titles):
 | Public Cloud Notifications  | Notification log            | `/public-cloud/accountability/audit`    |
 | Public Cloud Cost Rules     | Public Cloud Cost Rules     | `/admin/public-cloud/cost-rules`        |
 
-| Route                                   | Purpose                                                                                 | Jira        | Status |
-| --------------------------------------- | --------------------------------------------------------------------------------------- | ----------- | ------ |
-| `/public-cloud/accountability/all`      | Governance dashboard: KPI cards + presets (Stories 6.2–6.4)                             | CR-23/CR-24 | Done   |
-| `/public-cloud/accountability/forecast` | "Public Cloud Forecast": read-only forecast, actuals and variance rollup (per currency) | —           | Done   |
-| `/public-cloud/accountability/audit`    | Notification log (Story 7.5)                                                            | —           | Done   |
-| `/admin/public-cloud/cost-rules`        | Public Cloud Cost Rules (RC.1–RC.3)                                                     | CR-39       | Done   |
+| Route                                   | Purpose                                                                                                              | Jira        | Status |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ----------- | ------ |
+| `/public-cloud/accountability/all`      | Governance dashboard: KPI cards + presets (Stories 6.2–6.4)                                                          | CR-23/CR-24 | Done   |
+| `/public-cloud/accountability/forecast` | "Public Cloud Forecast": read-only forecast/actuals/variance rollup with expandable product line items; Excel export | —           | Done   |
+| `/public-cloud/accountability/audit`    | Notification log (Story 7.5)                                                                                         | —           | Done   |
+| `/admin/public-cloud/cost-rules`        | Public Cloud Cost Rules (RC.1–RC.3)                                                                                  | CR-39       | Done   |
 
 The former `compliance` (CR-24, Story 6.2), `director` (Story 6.3), and `executive` (Story 6.4)
 routes are consolidated into `/all` as the **Escalation list** / **Needs action** presets and the
@@ -200,19 +200,20 @@ Global session flags (`app/core/auth-options.ts`):
 
 ## API dependencies
 
-| UI area                   | API                                                          |
-| ------------------------- | ------------------------------------------------------------ |
-| Status + spend            | `GET .../accountability`                                     |
-| Current month costs       | `GET .../costs`                                              |
-| Forecast CRUD             | `GET/POST/PUT .../forecasts`                                 |
-| Submit / approve / reject | `POST .../forecasts/[id]/submit`, `approve`, `reject`        |
-| Export (project)          | `GET .../accountability/export` (CSV)                        |
-| Export (bundled)          | `POST /api/public-cloud/accountability/export`               |
-| Notification log search   | `POST /api/public-cloud/accountability/notifications/search` |
-| Quarterly review          | `GET/PUT/POST .../quarterly-review`                          |
-| Alerts                    | `POST .../alerts/[id]/acknowledge`, `resolve`                |
-| Admin list                | `GET /api/public-cloud/accountability/search`                |
-| CSP data                  | Internal ingest (not user-facing)                            |
+| UI area                    | API                                                          |
+| -------------------------- | ------------------------------------------------------------ |
+| Status + spend             | `GET .../accountability`                                     |
+| Current month costs        | `GET .../costs`                                              |
+| Forecast CRUD              | `GET/POST/PUT .../forecasts`                                 |
+| Submit / approve / reject  | `POST .../forecasts/[id]/submit`, `approve`, `reject`        |
+| Export (project)           | `GET .../accountability/export` (CSV)                        |
+| Export (bundled)           | `POST /api/public-cloud/accountability/export`               |
+| Export (platform forecast) | `GET /api/public-cloud/accountability/forecast/export`       |
+| Notification log search    | `POST /api/public-cloud/accountability/notifications/search` |
+| Quarterly review           | `GET/PUT/POST .../quarterly-review`                          |
+| Alerts                     | `POST .../alerts/[id]/acknowledge`, `resolve`                |
+| Admin list                 | `GET /api/public-cloud/accountability/search`                |
+| CSP data                   | Internal ingest (not user-facing)                            |
 
 See [data model](./cloud-cost-data-model.md#registry-api-surface-illustrative).
 

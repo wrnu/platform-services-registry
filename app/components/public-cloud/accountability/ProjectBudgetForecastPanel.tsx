@@ -424,7 +424,6 @@ export default function ProjectBudgetForecastPanel({
       <div className="space-y-6">
         {fiscalYearChunks.map((fyChunk) => {
           const yearTotal = sumMonthlyValues(fyChunk.months);
-          const showYearTotal = !isInProgressFiscalYear(fyChunk);
 
           return (
             <div key={fyChunk.label} className="border border-gray-200 rounded-lg overflow-hidden bg-white">
@@ -446,11 +445,7 @@ export default function ProjectBudgetForecastPanel({
                           {shortMonthLabel(v.year, v.month)}
                         </th>
                       ))}
-                      {showYearTotal ? (
-                        <th className="px-3 py-2 text-center font-semibold bg-amber-50 text-gray-800">TOTAL</th>
-                      ) : (
-                        <th className="px-3 py-2 text-center font-semibold bg-gray-50 text-gray-400">TOTAL</th>
-                      )}
+                      <th className="px-3 py-2 text-center font-semibold bg-amber-50 text-gray-800">TOTAL</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -488,13 +483,9 @@ export default function ProjectBudgetForecastPanel({
                           </td>
                         );
                       })}
-                      {showYearTotal ? (
-                        <td className="px-3 py-2 text-center font-bold bg-amber-50 text-gray-900">
-                          {formatForecastAmount(yearTotal, currency)}
-                        </td>
-                      ) : (
-                        <td className="px-3 py-2 text-center text-sm bg-gray-50 text-gray-400">In progress</td>
-                      )}
+                      <td className="px-3 py-2 text-center font-bold bg-amber-50 text-gray-900">
+                        {formatForecastAmount(yearTotal, currency)}
+                      </td>
                     </tr>
                     {hasActuals && (
                       <tr>
@@ -512,19 +503,15 @@ export default function ProjectBudgetForecastPanel({
                             </td>
                           );
                         })}
-                        {showYearTotal ? (
-                          <td className="px-3 py-2 text-center font-semibold bg-amber-50 text-gray-800">
-                            {formatForecastAmount(
-                              fyChunk.months.reduce(
-                                (sum, v) => sum + (actualsByKey.get(monthKey(v.year, v.month)) ?? 0),
-                                0,
-                              ),
-                              currency,
-                            )}
-                          </td>
-                        ) : (
-                          <td className="px-3 py-2 text-center text-sm bg-gray-50 text-gray-400">—</td>
-                        )}
+                        <td className="px-3 py-2 text-center font-semibold bg-amber-50 text-gray-800">
+                          {formatForecastAmount(
+                            fyChunk.months.reduce(
+                              (sum, v) => sum + (actualsByKey.get(monthKey(v.year, v.month)) ?? 0),
+                              0,
+                            ),
+                            currency,
+                          )}
+                        </td>
                       </tr>
                     )}
                   </tbody>
@@ -538,21 +525,9 @@ export default function ProjectBudgetForecastPanel({
       <div className="grid gap-3 sm:grid-cols-3">
         {fiscalYearChunks.map((fyChunk, fyIndex) => {
           const yearTotal = sumMonthlyValues(fyChunk.months);
-          const showYearTotal = !isInProgressFiscalYear(fyChunk);
           const yoy = getAdjacentFiscalYearPercentChange(fiscalYearChunks, fyIndex);
-
-          if (!showYearTotal) {
-            return (
-              <div key={fyChunk.label} className="rounded-lg border border-dashed border-gray-300 p-4 bg-gray-50">
-                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{fyChunk.label} total</div>
-                <div className="text-sm text-gray-600 mt-2">
-                  Annual total hidden while this fiscal year is in progress.
-                </div>
-              </div>
-            );
-          }
-
           const isPartial = isPartialFiscalYearChunk(fyChunk);
+          const inProgress = isInProgressFiscalYear(fyChunk);
 
           return (
             <div key={fyChunk.label} className="rounded-lg border border-gray-200 p-4 bg-white">
@@ -567,6 +542,8 @@ export default function ProjectBudgetForecastPanel({
                   First {fyChunk.months.length} month{fyChunk.months.length === 1 ? '' : 's'} of the fiscal year
                   (rolling window)
                 </div>
+              ) : inProgress ? (
+                <div className="text-sm text-gray-500 mt-1">Full-year forecast total (year still in progress)</div>
               ) : (
                 <div className="text-sm text-gray-500 mt-1">First fiscal year in forecast</div>
               )}

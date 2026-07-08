@@ -108,3 +108,17 @@ export async function searchAccountabilityNotifications(data: Record<string, unk
 export async function getPlatformForecast() {
   return adminInstance.get('/forecast').then((res) => res.data);
 }
+
+export async function downloadPlatformForecastExport(format: 'csv' | 'xlsx' = 'xlsx') {
+  const result = await adminInstance
+    .get('/forecast/export', { params: { format }, responseType: 'blob' })
+    .then((res) => {
+      if (res.status === 204) return false;
+
+      const ext = format === 'csv' ? 'csv' : 'xlsx';
+      downloadFile(res.data, `public-cloud-forecast.${ext}`, res.headers);
+      return true;
+    });
+
+  return result;
+}
