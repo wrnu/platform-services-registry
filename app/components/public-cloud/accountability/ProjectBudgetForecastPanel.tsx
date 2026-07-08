@@ -1,0 +1,705 @@
+'use client';
+
+import { Alert, Button, Modal, NumberInput, Radio, Textarea } from '@mantine/core';
+import { IconCheck } from '@tabler/icons-react';
+import { useMutation } from '@tanstack/react-query';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
+import { convertUsdToCad, formatUsdCadRate, getUsdToCadRate, providerReportsActualsInUsd } from '@/helpers/usd-cad-fx';
+import { updatePublicCloudForecast } from '@/services/backend/public-cloud/accountability';
+import {
+  applyAmountToFutureMonths,
+  copyAmountAcrossEditableMonths,
+  countCellsAwaitingForecast,
+  FISCAL_FORECAST_HORIZON_MONTHS,
+  formatForecastAmount,
+  getCellStatuses,
+  getFiscalYearChunks,
+  getForecastIncreases,
+  getInitialConfirmedKeys,
+  getProviderSpendLabel,
+  getReviewWindowStartIndex,
+  isInProgressFiscalYear,
+  isPartialFiscalYearChunk,
+  isPastMonth,
+  mergeMonthlyValuesOntoFiscalHorizon,
+  monthKey,
+  preserveLockedPastMonthlyValues,
+  shortMonthLabel,
+  sumMonthlyValues,
+  yearRangeLabel,
+  type ForecastCellStatus,
+  type ForecastIncrease,
+  type MonthlyValue,
+} from './forecast-grid-utils';
+
+type QuarterlyReview = {
+  poSignedOff: boolean;
+  forecastMonthsReviewed?: boolean;
+  status?: string;
+};
+
+type ForecastMeta = {
+  id: string;
+  version: number;
+  status: string;
+  horizonMonths: number;
+  updatedAt?: string;
+};
+
+function CellEditor({
+  value,
+  currency,
+  status,
+  editable,
+  onChange,
+  onApplyToFuture,
+}: {
+  value: number;
+  currency: string;
+  status: ForecastCellStatus;
+  editable: boolean;
+  onChange: (amount: number) => void;
+  onApplyToFuture?: () => void;
+}) {
+  const [draftValue, setDraftValue] = useState(value);
+  const [showApplyFuture, setShowApplyFuture] = useState(false);
+
+  useEffect(() => {
+    setDraftValue(Math.round(value));
+    setShowApplyFuture(false);
+  }, [value]);
+
+  if (status === 'past') {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-9">
+        <span className="font-medium text-sm text-gray-400">{formatForecastAmount(value, currency)}</span>
+      </div>
+    );
+  }
+
+  // Confirmed future months stay editable so teams can update projections when plans change.
+  const canEdit = editable;
+
+  if (canEdit) {
+    return (
+      <div className="space-y-1">
+        <NumberInput
+          value={Math.round(draftValue)}
+          min={0}
+          hideControls
+          decimalScale={0}
+          allowDecimal={false}
+          thousandSeparator=","
+          prefix="$"
+          onChange={(val) => {
+            const next = typeof val === 'number' ? Math.round(val) : 0;
+            setDraftValue(next);
+            onChange(next);
+            setShowApplyFuture(next !== Math.round(value));
+          }}
+          classNames={{ input: 'text-center font-medium text-sm h-9' }}
+          size="sm"
+        />
+        {showApplyFuture && onApplyToFuture && (
+          <button
+            type="button"
+            className="text-[10px] text-blue-700 underline"
+            onClick={() => {
+              onApplyToFuture();
+              setShowApplyFuture(false);
+            }}
+          >
+            Apply to all future months
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-9">
+      <span
+        className={`font-medium text-sm ${
+          status === 'suggested' || status === 'needsReview' ? 'text-gray-700' : 'text-gray-900'
+        }`}
+      >
+        {formatForecastAmount(value, currency)}
+      </span>
+      {status === 'suggested' && <span className="text-[10px] uppercase text-gray-400 tracking-wide">suggested</span>}
+    </div>
+  );
+}
+
+type MonthlyActual = {
+  year: number;
+  month: number;
+  amount: number;
+};
+
+export default function ProjectBudgetForecastPanel({
+  licencePlate,
+  forecast,
+  monthlyValues,
+  monthlyActuals = [],
+  activeBaseline,
+  quarterlyReview,
+  editable,
+  provider,
+  workflowActions,
+  onSaved,
+  onForecastReviewed,
+  forecastReviewSaving,
+}: {
+  licencePlate: string;
+  forecast: ForecastMeta;
+  monthlyValues: MonthlyValue[];
+  monthlyActuals?: MonthlyActual[];
+  activeBaseline: MonthlyValue[] | null;
+  quarterlyReview: QuarterlyReview | null;
+  editable: boolean;
+  provider?: string;
+  workflowActions?: ReactNode;
+  onSaved: () => void;
+  onForecastReviewed?: () => void;
+  forecastReviewSaving?: boolean;
+}) {
+  const currency = 'CAD';
+  const showAwsFx = providerReportsActualsInUsd(provider ?? '');
+  const spendLabel = getProviderSpendLabel(provider);
+  const actualsByKey = useMemo(
+    () => new Map(monthlyActuals.map((v) => [monthKey(v.year, v.month), v.amount])),
+    [monthlyActuals],
+  );
+  const hasActuals = monthlyActuals.length > 0;
+
+  const cadMonthlyValues = useMemo(
+    () =>
+      monthlyValues.map((value) => ({
+        ...value,
+        amount:
+          value.currency === 'USD' ? convertUsdToCad(value.amount, value.year, value.month) : Math.round(value.amount),
+        currency: 'CAD' as const,
+      })),
+    [monthlyValues],
+  );
+
+  const cadActiveBaseline = useMemo(
+    () =>
+      activeBaseline
+        ? activeBaseline.map((value) => ({
+            ...value,
+            amount:
+              value.currency === 'USD'
+                ? convertUsdToCad(value.amount, value.year, value.month)
+                : Math.round(value.amount),
+            currency: 'CAD' as const,
+          }))
+        : null,
+    [activeBaseline],
+  );
+
+  const baselineValues = useMemo(
+    () => mergeMonthlyValuesOntoFiscalHorizon(cadMonthlyValues, currency),
+    [cadMonthlyValues, currency],
+  );
+
+  const baselineActive = useMemo(
+    () => (cadActiveBaseline ? mergeMonthlyValuesOntoFiscalHorizon(cadActiveBaseline, currency) : null),
+    [cadActiveBaseline, currency],
+  );
+
+  const [values, setValues] = useState(baselineValues);
+  const [confirmedKeys, setConfirmedKeys] = useState<Set<string>>(() =>
+    getInitialConfirmedKeys(baselineValues, baselineActive, quarterlyReview),
+  );
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [pendingIncreases, setPendingIncreases] = useState<ForecastIncrease[]>([]);
+  const [changeJustification, setChangeJustification] = useState('');
+  const [changeNature, setChangeNature] = useState<'ONE_TIME' | 'ONGOING'>('ONE_TIME');
+
+  const comparisonBaseline = baselineActive ?? baselineValues;
+
+  useEffect(() => {
+    setValues(baselineValues);
+    setConfirmedKeys(getInitialConfirmedKeys(baselineValues, baselineActive, quarterlyReview));
+  }, [baselineValues, baselineActive, quarterlyReview]);
+
+  const cellStatuses = useMemo(
+    () =>
+      getCellStatuses(values, {
+        quarterlyReview,
+        activeBaseline: baselineActive,
+        confirmedKeys,
+        editable,
+      }),
+    [values, quarterlyReview, baselineActive, confirmedKeys, editable],
+  );
+
+  const awaitingCount = countCellsAwaitingForecast(cellStatuses);
+  const currentFutureCount = cellStatuses.filter((status) => status !== 'past').length;
+  const confirmedCurrentFutureCount = currentFutureCount - awaitingCount;
+  const isDirty = JSON.stringify(values) !== JSON.stringify(baselineValues);
+  const fiscalYearChunks = getFiscalYearChunks(values);
+  const grandTotal = sumMonthlyValues(values);
+
+  const quarterKeys = new Set(
+    values.filter((_, i) => cellStatuses[i] === 'needsReview').map((v) => monthKey(v.year, v.month)),
+  );
+  const reviewMonthLabels = values
+    .filter((v) => quarterKeys.has(monthKey(v.year, v.month)))
+    .map((v) => shortMonthLabel(v.year, v.month));
+  const reviewMonthRange =
+    reviewMonthLabels.length > 1
+      ? `${reviewMonthLabels[0]} through ${reviewMonthLabels[reviewMonthLabels.length - 1]}`
+      : reviewMonthLabels[0];
+  const currentFutureValues = values.filter((v) => !isPastMonth(v.year, v.month));
+  const currentFutureRange =
+    currentFutureValues.length > 1
+      ? `${shortMonthLabel(currentFutureValues[0].year, currentFutureValues[0].month)} through ${shortMonthLabel(
+          currentFutureValues[currentFutureValues.length - 1].year,
+          currentFutureValues[currentFutureValues.length - 1].month,
+        )}`
+      : currentFutureValues[0]
+        ? shortMonthLabel(currentFutureValues[0].year, currentFutureValues[0].month)
+        : yearRangeLabel(values);
+
+  const performSave = (justification?: string, nature?: 'ONE_TIME' | 'ONGOING') => {
+    const lockedValues = preserveLockedPastMonthlyValues(baselineValues, values);
+    return updatePublicCloudForecast(licencePlate, forecast.id, {
+      monthlyValues: lockedValues.map((v) => ({
+        year: v.year,
+        month: v.month,
+        amount: Number(v.amount),
+        currency: 'CAD' as const,
+      })),
+      horizonMonths: FISCAL_FORECAST_HORIZON_MONTHS,
+      ...(justification
+        ? {
+            changeJustification: justification,
+            changeNature: nature,
+          }
+        : {}),
+    });
+  };
+
+  const save = useMutation({
+    mutationFn: ({ justification, nature }: { justification?: string; nature?: 'ONE_TIME' | 'ONGOING' } = {}) =>
+      performSave(justification, nature),
+    onSuccess: () => {
+      setSaveModalOpen(false);
+      setChangeJustification('');
+      setChangeNature('ONE_TIME');
+      setPendingIncreases([]);
+      onSaved();
+    },
+  });
+
+  const updateAmount = (index: number, amount: number) => {
+    const cell = values[index];
+    if (!cell || isPastMonth(cell.year, cell.month)) return;
+    const rounded = Math.round(amount);
+    setValues((prev) => prev.map((v, i) => (i === index ? { ...v, amount: rounded } : v)));
+    const key = monthKey(values[index].year, values[index].month);
+    setConfirmedKeys((prev) => {
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+  };
+
+  const confirmAllSuggested = () => {
+    const next = new Set(confirmedKeys);
+    values.forEach((v, i) => {
+      if (cellStatuses[i] !== 'confirmed' && cellStatuses[i] !== 'past') {
+        next.add(monthKey(v.year, v.month));
+      }
+    });
+    setConfirmedKeys(next);
+  };
+
+  const cellStatusOptions = useMemo(
+    () => ({ quarterlyReview, activeBaseline: baselineActive, confirmedKeys, editable }),
+    [quarterlyReview, baselineActive, confirmedKeys, editable],
+  );
+
+  const copyAcrossSuggested = () => {
+    setValues((prev) => {
+      const statuses = getCellStatuses(prev, cellStatusOptions);
+      const windowStart = getReviewWindowStartIndex(prev);
+      const sourceIndex = windowStart > 0 ? windowStart - 1 : 0;
+      return copyAmountAcrossEditableMonths(prev, statuses, sourceIndex);
+    });
+  };
+
+  const discardChanges = () => {
+    setValues(baselineValues);
+    setConfirmedKeys(getInitialConfirmedKeys(baselineValues, baselineActive, quarterlyReview));
+  };
+
+  const handleSaveClick = () => {
+    const lockedValues = preserveLockedPastMonthlyValues(baselineValues, values);
+    const increases = getForecastIncreases(lockedValues, comparisonBaseline);
+    if (increases.length > 0) {
+      setPendingIncreases(increases);
+      setSaveModalOpen(true);
+      return;
+    }
+    save.mutate({});
+  };
+
+  const applyToFutureMonths = (index: number, amount: number) => {
+    setValues((prev) => {
+      const statuses = getCellStatuses(prev, cellStatusOptions);
+      return applyAmountToFutureMonths(prev, statuses, index, amount);
+    });
+  };
+
+  const showForecastReviewAction = editable && quarterlyReview && !quarterlyReview.poSignedOff;
+  const canUseForecastReviewAction = !isDirty && Boolean(onForecastReviewed);
+  const forecastReviewProgress =
+    currentFutureCount > 0 ? Math.round((confirmedCurrentFutureCount / currentFutureCount) * 100) : 0;
+  const handleForecastReviewAction = () => {
+    if (!canUseForecastReviewAction) return;
+    if (awaitingCount > 0) {
+      confirmAllSuggested();
+    }
+    onForecastReviewed?.();
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="text-sm text-gray-600 space-y-1">
+        <p>
+          All forecast amounts are in <span className="font-medium text-gray-800">Canadian dollars</span>. Fiscal years
+          run April–March.
+        </p>
+        <p>
+          Rolling {FISCAL_FORECAST_HORIZON_MONTHS}-month forecast ({yearRangeLabel(values)}). Past months are locked and
+          shown for reference. Months that need review are highlighted before you enter edit mode.
+        </p>
+        {showAwsFx && (
+          <p>
+            AWS invoices in USD. Closed-month actuals are converted to CAD using the monthly USD/CAD rate shown under
+            each month (actual when known, tentative for the current and future months).
+          </p>
+        )}
+      </div>
+
+      {showForecastReviewAction && (
+        <Alert
+          color={quarterlyReview.forecastMonthsReviewed ? 'green' : 'blue'}
+          variant="light"
+          title={quarterlyReview.forecastMonthsReviewed ? 'Forecast review saved' : 'Quarterly forecast review'}
+        >
+          <div className="space-y-3 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span>
+                {quarterlyReview.forecastMonthsReviewed
+                  ? 'Full rolling forecast confirmed for this quarter. PO sign-off is still required.'
+                  : isDirty
+                    ? 'Save forecast changes before completing this review step.'
+                    : `Review ${
+                        reviewMonthRange ?? currentFutureRange
+                      }, then confirm the full rolling ${FISCAL_FORECAST_HORIZON_MONTHS}-month forecast.`}
+              </span>
+              {!quarterlyReview.forecastMonthsReviewed && (
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="light"
+                  loading={forecastReviewSaving}
+                  disabled={!canUseForecastReviewAction}
+                  onClick={handleForecastReviewAction}
+                >
+                  {isDirty
+                    ? 'Save forecast first'
+                    : awaitingCount > 0
+                      ? `Confirm ${currentFutureCount} months and mark reviewed`
+                      : 'Mark forecast reviewed'}
+                </Button>
+              )}
+            </div>
+            {!quarterlyReview.forecastMonthsReviewed && (
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs text-blue-900">
+                  <span>
+                    {confirmedCurrentFutureCount} / {currentFutureCount} months confirmed
+                  </span>
+                  <span>Save changes → confirm forecast → PO sign-off</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-blue-100 overflow-hidden">
+                  <div className="h-full rounded-full bg-blue-500" style={{ width: `${forecastReviewProgress}%` }} />
+                </div>
+              </div>
+            )}
+          </div>
+        </Alert>
+      )}
+
+      <div className="sticky top-0 z-20 -mx-1 px-1 py-2 bg-gray-50/95 backdrop-blur border-b border-gray-200 space-y-2">
+        {workflowActions}
+        <div className="flex flex-wrap items-center justify-between gap-3 border border-gray-200 rounded-md px-3 py-2 bg-white shadow-sm">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            {editable ? (
+              <>
+                <span className="text-gray-500 font-medium">Forecast tools:</span>
+                <Button type="button" size="compact-sm" variant="default" onClick={copyAcrossSuggested}>
+                  Copy value across range
+                </Button>
+                <Button type="button" size="compact-sm" variant="default" disabled={!isDirty} onClick={discardChanges}>
+                  Discard changes
+                </Button>
+                <Button
+                  type="button"
+                  size="compact-sm"
+                  color="primary"
+                  loading={save.isPending}
+                  disabled={!isDirty}
+                  onClick={handleSaveClick}
+                >
+                  Save forecast
+                </Button>
+              </>
+            ) : (
+              <span className="text-gray-500 font-medium">Forecast cell states</span>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-3 text-xs text-gray-600">
+            {editable && awaitingCount > 0 && (
+              <span className="font-medium text-gray-800">{awaitingCount} cells awaiting forecast</span>
+            )}
+            <span className="flex items-center gap-1">
+              <IconCheck size={14} className="text-green-600" /> Confirmed
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-3 h-3 rounded-sm bg-orange-200 border border-orange-400" /> Needs review
+            </span>
+            {editable && <span className="text-gray-400">$0 Suggested</span>}
+            <span className="flex items-center gap-1">
+              <span className="w-3 h-3 rounded-sm bg-gray-200 border border-gray-300" /> Past (locked)
+            </span>
+          </div>
+        </div>
+        {editable && (
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600 px-1">
+            {forecast.updatedAt && <span>Last saved {new Date(forecast.updatedAt).toLocaleString()}</span>}
+            <span>
+              Draft v{forecast.version} · {forecast.status.replace(/_/g, ' ')}
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-6">
+        {fiscalYearChunks.map((fyChunk) => {
+          const yearTotal = sumMonthlyValues(fyChunk.months);
+
+          return (
+            <div key={fyChunk.label} className="border border-gray-200 rounded-lg overflow-hidden bg-white">
+              <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 text-sm font-semibold text-gray-700">
+                {fyChunk.label} <span className="font-normal text-gray-500">({yearRangeLabel(fyChunk.months)})</span>
+                {isPartialFiscalYearChunk(fyChunk) && (
+                  <span className="ml-2 font-normal text-xs text-gray-500">
+                    partial year — end of the rolling {FISCAL_FORECAST_HORIZON_MONTHS}-month window
+                  </span>
+                )}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[720px] text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="px-3 py-2 text-left text-gray-500 w-28 sticky left-0 bg-white">{spendLabel}</th>
+                      {fyChunk.months.map((v) => (
+                        <th key={monthKey(v.year, v.month)} className="px-2 py-2 text-center text-gray-500 font-medium">
+                          <div>{shortMonthLabel(v.year, v.month)}</div>
+                          {showAwsFx &&
+                            (() => {
+                              const fx = getUsdToCadRate(v.year, v.month);
+                              return (
+                                <div
+                                  className={`text-[10px] font-normal mt-0.5 ${
+                                    fx.status === 'actual' ? 'text-gray-500' : 'text-amber-700'
+                                  }`}
+                                  title={
+                                    fx.status === 'actual'
+                                      ? 'Actual USD/CAD rate used for this closed month'
+                                      : 'Tentative USD/CAD rate (AWS typically settles a few days after month end)'
+                                  }
+                                >
+                                  FX {formatUsdCadRate(fx.rate)}
+                                  {fx.status === 'tentative' ? ' tent.' : ''}
+                                </div>
+                              );
+                            })()}
+                        </th>
+                      ))}
+                      <th className="px-3 py-2 text-center font-semibold bg-amber-50 text-gray-800">TOTAL</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td className="px-3 py-2 text-gray-600 sticky left-0 bg-white border-r border-gray-100">
+                        Forecast
+                      </td>
+                      {fyChunk.months.map((v, i) => {
+                        const globalIndex = fyChunk.startIndex + i;
+                        const status = cellStatuses[globalIndex];
+                        const cellClass =
+                          status === 'past'
+                            ? 'bg-gray-100'
+                            : status === 'needsReview'
+                              ? 'bg-orange-50 border border-orange-300'
+                              : status === 'suggested'
+                                ? 'bg-gray-50'
+                                : 'bg-white';
+
+                        return (
+                          <td key={monthKey(v.year, v.month)} className={`px-1 py-1 ${cellClass} relative`}>
+                            {status === 'confirmed' && (
+                              <div className="flex justify-center mb-0.5">
+                                <IconCheck size={14} className="text-green-600" />
+                              </div>
+                            )}
+                            {status === 'needsReview' && !editable && (
+                              <div className="flex justify-center mb-0.5">
+                                <span className="text-[10px] uppercase tracking-wide text-orange-700">Review</span>
+                              </div>
+                            )}
+                            <CellEditor
+                              value={v.amount}
+                              currency={currency}
+                              status={status}
+                              editable={editable}
+                              onChange={(amount) => updateAmount(globalIndex, amount)}
+                              onApplyToFuture={() => applyToFutureMonths(globalIndex, values[globalIndex]?.amount ?? 0)}
+                            />
+                          </td>
+                        );
+                      })}
+                      <td className="px-3 py-2 text-center font-bold bg-amber-50 text-gray-900">
+                        {formatForecastAmount(yearTotal, currency)}
+                      </td>
+                    </tr>
+                    {hasActuals && (
+                      <tr>
+                        <td className="px-3 py-2 text-gray-600 sticky left-0 bg-white border-r border-gray-100">
+                          Actual
+                        </td>
+                        {fyChunk.months.map((v) => {
+                          const actual = actualsByKey.get(monthKey(v.year, v.month));
+                          return (
+                            <td
+                              key={`actual-${monthKey(v.year, v.month)}`}
+                              className="px-2 py-2 text-center text-sm text-gray-700 bg-gray-100"
+                            >
+                              {actual != null ? formatForecastAmount(actual, currency) : '—'}
+                            </td>
+                          );
+                        })}
+                        <td className="px-3 py-2 text-center font-semibold bg-amber-50 text-gray-800">
+                          {formatForecastAmount(
+                            fyChunk.months.reduce(
+                              (sum, v) => sum + (actualsByKey.get(monthKey(v.year, v.month)) ?? 0),
+                              0,
+                            ),
+                            currency,
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        {fiscalYearChunks.map((fyChunk) => {
+          const yearTotal = sumMonthlyValues(fyChunk.months);
+          const isPartial = isPartialFiscalYearChunk(fyChunk);
+          const inProgress = isInProgressFiscalYear(fyChunk);
+
+          return (
+            <div key={fyChunk.label} className="rounded-lg border border-gray-200 p-4 bg-white">
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{fyChunk.label} total</div>
+              <div className="text-2xl font-bold text-gray-900 mt-1">{formatForecastAmount(yearTotal, currency)}</div>
+              {isPartial ? (
+                <div className="text-sm text-gray-500 mt-1">
+                  First {fyChunk.months.length} month{fyChunk.months.length === 1 ? '' : 's'} of the fiscal year
+                  (rolling window)
+                </div>
+              ) : inProgress ? (
+                <div className="text-sm text-gray-500 mt-1">Full-year forecast total (year still in progress)</div>
+              ) : (
+                <div className="text-sm text-gray-500 mt-1">First fiscal year in forecast</div>
+              )}
+            </div>
+          );
+        })}
+        <div className="rounded-lg border-2 border-amber-300 bg-amber-50 p-4 sm:col-span-1">
+          <div className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+            {FISCAL_FORECAST_HORIZON_MONTHS}-month forecast total
+          </div>
+          <div className="text-2xl font-bold text-gray-900 mt-1">{formatForecastAmount(grandTotal, currency)}</div>
+          <div className="text-xs text-gray-600 mt-1">{yearRangeLabel(values)}</div>
+        </div>
+      </div>
+
+      <p className="text-xs text-gray-500">
+        Saving creates a versioned snapshot. Previous versions are retained in the forecast history.
+      </p>
+
+      <Modal opened={saveModalOpen} onClose={() => setSaveModalOpen(false)} title="Explain forecast increases" centered>
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            One or more forecast months increased compared to the last saved forecast. Provide a short justification
+            before saving.
+          </p>
+          <ul className="text-sm text-gray-700 list-disc pl-5 space-y-1">
+            {pendingIncreases.map((increase) => (
+              <li key={monthKey(increase.year, increase.month)}>
+                {shortMonthLabel(increase.year, increase.month)}:{' '}
+                {formatForecastAmount(increase.previousAmount, currency)} →{' '}
+                {formatForecastAmount(increase.newAmount, currency)}
+              </li>
+            ))}
+          </ul>
+          <Textarea
+            label="Justification"
+            required
+            minRows={3}
+            value={changeJustification}
+            onChange={(event) => setChangeJustification(event.currentTarget.value)}
+            placeholder="Explain why the forecast increased..."
+          />
+          <Radio.Group
+            label="Nature of change"
+            value={changeNature}
+            onChange={(value) => setChangeNature(value as 'ONE_TIME' | 'ONGOING')}
+          >
+            <div className="space-y-2 mt-2">
+              <Radio value="ONE_TIME" label="One-time change" />
+              <Radio value="ONGOING" label="Ongoing change" />
+            </div>
+          </Radio.Group>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="default" onClick={() => setSaveModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              color="primary"
+              loading={save.isPending}
+              disabled={!changeJustification.trim()}
+              onClick={() => save.mutate({ justification: changeJustification.trim(), nature: changeNature })}
+            >
+              Save forecast
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}

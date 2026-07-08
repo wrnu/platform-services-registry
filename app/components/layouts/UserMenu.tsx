@@ -125,6 +125,30 @@ export default function UserMenu() {
       permission: 'viewPublicCloudBilling',
     },
     {
+      text: 'Public Cloud Accountability',
+      Icon: IconSignLeft,
+      href: '/public-cloud/accountability/all',
+      permission: 'viewPublicCloudAccountability',
+    },
+    {
+      text: 'Public Cloud Forecast',
+      Icon: IconClockDollar,
+      href: '/public-cloud/accountability/forecast',
+      permission: 'viewPublicCloudAccountability',
+    },
+    {
+      text: 'Public Cloud Notifications',
+      Icon: IconSignLeft,
+      href: '/public-cloud/accountability/audit',
+      permission: 'viewPublicCloudAccountability',
+    },
+    {
+      text: 'Public Cloud Cost Rules',
+      Icon: IconClockDollar,
+      href: '/admin/public-cloud/cost-rules',
+      permission: 'viewPublicCloudAccountability',
+    },
+    {
       text: 'General Analytics',
       Icon: IconPresentationAnalytics,
       href: '/analytics/general',

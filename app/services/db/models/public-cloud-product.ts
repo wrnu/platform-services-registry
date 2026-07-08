@@ -137,6 +137,13 @@ async function decorate<T extends PublicCloudProductSimple & Partial<PublicCloud
 
   const decoratedDoc = doc as T & PublicCloudProductDecorate;
 
+  const canViewAccountability =
+    canView || session.permissions.viewPublicCloudBilling || session.permissions.viewPublicCloudAccountability;
+
+  const canEditForecast = canEdit;
+  const canApproveForecast = session.permissions.reviewPublicCloudBilling || session.isBillingReviewer;
+  const canRespondAccountabilityAlert = isMaintainer || isExpenseAuthority;
+
   decoratedDoc._permissions = {
     view: canView || canSignMou || canApproveMou,
     edit: canEdit,
@@ -150,6 +157,10 @@ async function decorate<T extends PublicCloudProductSimple & Partial<PublicCloud
       session.permissions.reviewPublicCloudBilling ||
       session.isBillingManager ||
       doc.expenseAuthorityId === session.user.id,
+    viewAccountability: canViewAccountability,
+    editForecast: canEditForecast,
+    approveForecast: canApproveForecast,
+    respondAccountabilityAlert: canRespondAccountabilityAlert,
   };
 
   return decoratedDoc;

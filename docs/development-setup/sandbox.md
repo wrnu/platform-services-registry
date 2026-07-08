@@ -129,3 +129,138 @@ Within the local Docker container environment, **10 services** are available:
 
 > Mock user details can be found in the [mock-users.json](https://github.com/bcgov/platform-services-registry/blob/main/sandbox/mock-users.json){target="\_blank" rel="noopener noreferrer"} file.
 > Passwords are derived by converting user email addresses to lowercase.
+
+### Seed local application data
+
+After starting the sandbox and running `prisma db push`:
+
+**Full seed (recommended)** — ministries, users, cost rules, Azure product `e71b0e`, accountability demo data:
+
+```bash
+cd app
+pnpm run prisma-push
+pnpm run seed-all-local
+```
+
+**Minimal seed** — organizations and users only:
+
+```bash
+cd app
+pnpm run prisma-push
+pnpm run seed-local
+```
+
+Refresh the browser so the ministry dropdown and user search are populated. When filling team contacts, search by email (at least 3 characters), e.g. `admin.system` or `gov.bc`.
+
+To skip the billing eMOU **Review** step locally (after signing as expense authority):
+
+```bash
+pnpm run approve-local-emou
+```
+
+This marks signed billings as approved and closes the reviewer task. If you are provisioning a new product, approve the create request:
+
+```bash
+pnpm run approve-local-request
+```
+
+This approves pending CREATE requests, creates the product, and marks the request provisioned (skips public reviewer UI and NATS).
+
+### Seed accountability demo data
+
+After a product exists (e.g. licence plate `e71b0e`), populate CSP spend, history, an approved forecast, and a sample A1 alert:
+
+```bash
+pnpm run seed-accountability-local
+```
+
+Options:
+
+```bash
+# Different licence plate
+pnpm run seed-accountability-local -- abc123
+
+# Clear accountability data for the product and re-seed
+pnpm run seed-accountability-local -- --reset
+
+# CSP data only (test forecast create / submit / approve in the UI)
+pnpm run seed-accountability-local -- --skip-forecast --reset
+```
+
+The script prints a walkthrough checklist. Open the product budget section on the **Product** tab:
+
+`http://localhost:3000/public-cloud/products/e71b0e/edit`
+
+Login as `admin.system@gov.bc.ca` (password from mock-users.json — email lowercased).
+
+After seeding, verify current month spend on the **Costs** tab:
+
+`http://localhost:3000/public-cloud/products/e71b0e/costs`
+
+## Sharing your local sandbox (Cloudflare Tunnel)
+
+Use [cloudflared](https://github.com/cloudflare/cloudflared) (Apache 2.0) to expose your local app and Keycloak over HTTPS so others can try the sandbox without VPN access.
+
+**Use mock data only.** Do not tunnel environments with real credentials or production-like secrets. Confirm your team’s policy allows third-party tunnel relays before sharing outside your machine.
+
+### Install
+
+=== "Mac"
+
+```bash
+brew install cloudflared
+```
+
+=== "Linux"
+
+See [Cloudflare Tunnel install docs](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/){target="\_blank" rel="noopener noreferrer"}.
+
+### Start tunnels
+
+With the sandbox and Next dev server running locally, **in a dedicated terminal** (leave it open while sharing):
+
+```bash
+make tunnel
+```
+
+`make tunnel` blocks until you press Ctrl+C (which stops tunnels and restores `.env.local`). For a non-blocking start: `make tunnel DETACHED=true`.
+
+This script:
+
+1. Starts two quick tunnels — app (`localhost:3000`) and Keycloak (`localhost:8080`)
+2. Backs up `app/.env.local` to `sandbox/.tunnel/.env.local.bak`
+3. Sets `BASE_URL`, `AUTH_BASE_URL`, `AUTH_SERVER_URL`, and related Keycloak URLs in `.env.local`
+4. Prints the **share URL** (the app tunnel)
+
+**Restart the dev server** after starting tunnels so Next.js picks up the new env vars (use Ctrl+C in the dev terminal, not `lsof -ti:3000 | xargs kill`):
+
+```bash
+cd app && pnpm run dev
+```
+
+Share the printed `https://….trycloudflare.com` URL. Viewers log in with mock users from [mock-users.json](https://github.com/bcgov/platform-services-registry/blob/main/sandbox/mock-users.json){target="\_blank" rel="noopener noreferrer"} (password = email lowercased).
+
+Local Keycloak allows any redirect URI (`redirectUris: ['*']`), so OAuth works with the tunnel URLs without extra Keycloak config.
+
+### Stop tunnels
+
+```bash
+make tunnel-stop
+```
+
+Stops `cloudflared`, restores `.env.local` from the backup, and returns you to localhost URLs. Restart the dev server again.
+
+### Check status
+
+```bash
+make tunnel-status
+```
+
+### Notes
+
+-   Quick tunnel URLs change every time you run `make tunnel`. Re-share after each restart.
+-   If you see Cloudflare error **1033**, the tunnel process stopped — run `make tunnel` again (older scripts exited when `make` finished; use the latest `cloudflared-tunnel.sh`).
+-   Next.js dev mode blocks tunnel hostnames by default; `next.config.js` uses `BASE_URL` for `allowedDevOrigins` when not on localhost.
+-   Set `NEXTAUTH_URL` to the app tunnel URL (done automatically by `make tunnel`) so the Login button and session work through the tunnel.
+-   For a stable hostname, use a [named Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/create-remote-tunnel/){target="\_blank" rel="noopener noreferrer"} with a free Cloudflare account.
+-   Tunnels only forward the app and Keycloak. Mailpit (`localhost:8025`) and other sandbox services stay local unless you add more tunnels.

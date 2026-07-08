@@ -172,12 +172,15 @@ export default function BillingStatusProgress({
     </>
   );
 
+  // Steps are status indicators, not navigation. Render as divs so action
+  // buttons in descriptions are not nested inside <button> elements.
   if (billing.approved) {
     return (
       <Stepper active={3} iconSize={35} className={cn(className)}>
-        <Stepper.Step label="Assigned" description={getAssignedContent()} />
-        <Stepper.Step label="Signed" description={getSignedContent()} />
+        <Stepper.Step component="div" label="Assigned" description={getAssignedContent()} />
+        <Stepper.Step component="div" label="Signed" description={getSignedContent()} />
         <Stepper.Step
+          component="div"
           label="Approved"
           color="success"
           completedIcon={<IconConfetti style={{ width: rem(20), height: rem(20) }} />}
@@ -190,18 +193,19 @@ export default function BillingStatusProgress({
   if (billing.signed) {
     return (
       <Stepper active={3} iconSize={35} className={cn(className)}>
-        <Stepper.Step label="Assigned" description={getAssignedContent()} />
-        <Stepper.Step label="Signed" description={getSignedContent()} />
-        <Stepper.Step label="Review" description={getReviewingContent()} loading />
+        <Stepper.Step component="div" label="Assigned" description={getAssignedContent()} />
+        <Stepper.Step component="div" label="Signed" description={getSignedContent()} />
+        <Stepper.Step component="div" label="Review" description={getReviewingContent()} loading />
       </Stepper>
     );
   }
 
   return (
     <Stepper active={2} iconSize={35} className={cn(className)}>
-      <Stepper.Step label="Assigned" description={getAssignedContent()} />
-      <Stepper.Step label="Sign" description={getSiningContent()} loading />
+      <Stepper.Step component="div" label="Assigned" description={getAssignedContent()} />
+      <Stepper.Step component="div" label="Sign" description={getSiningContent()} loading />
       <Stepper.Step
+        component="div"
         label="Review"
         description={
           <span>
