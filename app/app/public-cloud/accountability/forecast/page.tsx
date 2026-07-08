@@ -1,6 +1,6 @@
 'use client';
 
-import { Button, Checkbox, Select, TextInput } from '@mantine/core';
+import { Button, Checkbox, SegmentedControl, Select, TextInput } from '@mantine/core';
 import { IconChevronDown, IconChevronRight } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
@@ -9,11 +9,10 @@ import ExportButton from '@/components/buttons/ExportButton';
 import LoadingBox from '@/components/generic/LoadingBox';
 import {
   formatForecastAmount,
-  formatPercentChange,
-  getAdjacentFiscalYearPercentChange,
   getFiscalYearChunks,
   getProviderSpendLabel,
   isPastMonth,
+  mergeMonthlyValuesOntoFiscalHorizon,
   monthKey,
   shortMonthLabel,
   sumMonthlyValues,
@@ -23,6 +22,7 @@ import {
 } from '@/components/public-cloud/accountability/forecast-grid-utils';
 import { GlobalPermissions } from '@/constants';
 import createClientPage from '@/core/client-page';
+import { Provider } from '@/prisma/client';
 import { downloadPlatformForecastExport, getPlatformForecast } from '@/services/backend/public-cloud/accountability';
 import { PlatformForecastProduct, PlatformForecastSummary } from '@/services/db/public-cloud-accountability';
 
@@ -30,6 +30,53 @@ const DEFAULT_PRODUCT_LIMIT = 10;
 const PRODUCT_LIMIT_INCREMENT = 10;
 
 type ProductSort = 'forecast-desc' | 'variance-desc' | 'name-asc';
+type ProviderFilter = 'ALL' | Provider.AWS_LZA | Provider.AZURE | Provider.AWS;
+
+const PROVIDER_FILTER_OPTIONS: { value: Exclude<ProviderFilter, 'ALL'>; label: string }[] = [
+  { value: Provider.AWS_LZA, label: 'AWS LZA' },
+  { value: Provider.AZURE, label: 'Azure' },
+  { value: Provider.AWS, label: 'AWS' },
+];
+
+function providerFilterLabel(provider: string) {
+  if (provider === Provider.AWS_LZA) return 'AWS LZA';
+  if (provider === Provider.AZURE) return 'Azure';
+  if (provider === Provider.AWS) return 'AWS';
+  return provider;
+}
+
+function buildFilteredGroupTotals(
+  products: PlatformForecastProduct[],
+  currency: string,
+): { monthlyTotals: MonthlyValue[]; monthlyActuals: (number | null)[] } {
+  const totalsByMonth = new Map<string, MonthlyValue>();
+  const actualsByMonth = new Map<string, number>();
+
+  for (const product of products) {
+    if (product.hasForecast) {
+      for (const value of product.monthlyTotals) {
+        const key = monthKey(value.year, value.month);
+        const existing = totalsByMonth.get(key);
+        if (existing) {
+          existing.amount += value.amount;
+        } else {
+          totalsByMonth.set(key, { ...value, currency });
+        }
+      }
+    }
+
+    product.monthlyTotals.forEach((slot, index) => {
+      const actual = product.monthlyActuals[index];
+      if (actual == null) return;
+      const key = monthKey(slot.year, slot.month);
+      actualsByMonth.set(key, (actualsByMonth.get(key) ?? 0) + actual);
+    });
+  }
+
+  const monthlyTotals = mergeMonthlyValuesOntoFiscalHorizon([...totalsByMonth.values()], currency);
+  const monthlyActuals = monthlyTotals.map((slot) => actualsByMonth.get(monthKey(slot.year, slot.month)) ?? null);
+  return { monthlyTotals, monthlyActuals };
+}
 
 function SummaryCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
@@ -101,20 +148,41 @@ function formatResidualVariance(amount: number, currency: string) {
 }
 
 function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['groups'][number] }) {
+  const availableProviders = PROVIDER_FILTER_OPTIONS.filter((option) => group.providers.includes(option.value)).map(
+    (option) => option.value,
+  );
   const [showProducts, setShowProducts] = useState(false);
   const [productSearch, setProductSearch] = useState('');
   const [productSort, setProductSort] = useState<ProductSort>('forecast-desc');
   const [missingOnly, setMissingOnly] = useState(false);
   const [productLimit, setProductLimit] = useState(DEFAULT_PRODUCT_LIMIT);
-  const values = group.monthlyTotals as MonthlyValue[];
-  const actuals = group.monthlyActuals;
+  const [providerFilter, setProviderFilter] = useState<ProviderFilter>('ALL');
+
+  const activeProviders =
+    providerFilter === 'ALL'
+      ? availableProviders
+      : availableProviders.includes(providerFilter)
+        ? [providerFilter]
+        : availableProviders;
+  const providerFilteredProducts = group.products.filter((product) =>
+    activeProviders.includes(product.provider as Exclude<ProviderFilter, 'ALL'>),
+  );
+  const filteredTotals =
+    providerFilter === 'ALL' || activeProviders.length === availableProviders.length
+      ? { monthlyTotals: group.monthlyTotals as MonthlyValue[], monthlyActuals: group.monthlyActuals }
+      : buildFilteredGroupTotals(providerFilteredProducts, group.currency);
+
+  const values = filteredTotals.monthlyTotals;
+  const actuals = filteredTotals.monthlyActuals;
   const fiscalYearChunks = getFiscalYearChunks(values);
   const grandTotal = sumMonthlyValues(values);
   const actualToDate = actuals.reduce<number>((sum, v) => sum + (v ?? 0), 0);
   const forecastForActualMonths = values.reduce((sum, v, i) => (actuals[i] != null ? sum + v.amount : sum), 0);
   const hasActuals = actuals.some((v) => v != null);
-  const spendLabel = group.providers.length === 1 ? getProviderSpendLabel(group.providers[0]) : 'Cloud Spend';
-  const lineItemProducts = group.products.filter((product) =>
+  const spendLabel = activeProviders.length === 1 ? getProviderSpendLabel(activeProviders[0]) : 'Cloud Spend';
+  const filteredProductCount = providerFilteredProducts.length;
+  const filteredForecastCount = providerFilteredProducts.filter((product) => product.hasForecast).length;
+  const lineItemProducts = providerFilteredProducts.filter((product) =>
     missingOnly ? !product.hasForecast : product.hasForecast || product.monthlyActuals.some((v) => v != null),
   );
   const searchedProducts = sortProducts(
@@ -122,26 +190,48 @@ function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['group
     productSort,
   );
   const visibleProducts = searchedProducts.slice(0, productLimit);
-  const otherProductCount = Math.max(group.products.length - visibleProducts.length, 0);
+  const otherProductCount = Math.max(providerFilteredProducts.length - visibleProducts.length, 0);
   const hiddenMatchingProductCount = Math.max(searchedProducts.length - visibleProducts.length, 0);
   const canShowMoreProducts = hiddenMatchingProductCount > 0;
   const showOtherRow = showProducts && otherProductCount > 0;
+  const includesAws = activeProviders.some((provider) => provider === Provider.AWS || provider === Provider.AWS_LZA);
+  const providerControlData = [
+    { value: 'ALL', label: 'All providers' },
+    ...PROVIDER_FILTER_OPTIONS.filter((option) => availableProviders.includes(option.value)),
+  ];
 
   useEffect(() => {
     setProductLimit(DEFAULT_PRODUCT_LIMIT);
-  }, [productSearch, productSort, missingOnly]);
+  }, [productSearch, productSort, missingOnly, providerFilter]);
+
+  useEffect(() => {
+    if (providerFilter !== 'ALL' && !availableProviders.includes(providerFilter)) {
+      setProviderFilter('ALL');
+    }
+  }, [availableProviders, providerFilter]);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold">
-            {spendLabel} ({group.currency})
-          </h2>
-          <p className="text-sm text-gray-600">
-            {group.forecastCount} of {group.productCount} {group.providers.join(' / ')} products have an approved
-            forecast included in these totals. Actuals are closed-month spend reported by the cloud service provider.
-          </p>
+        <div className="space-y-3 min-w-0 flex-1">
+          <div>
+            <h2 className="text-lg font-semibold">
+              {spendLabel} ({group.currency})
+            </h2>
+            <p className="text-sm text-gray-600">
+              {filteredForecastCount} of {filteredProductCount} {activeProviders.map(providerFilterLabel).join(' / ')}{' '}
+              products have an approved forecast included in these totals. Actuals are closed-month spend reported by
+              the cloud service provider.
+              {includesAws ? ' AWS USD actuals are converted to CAD using the monthly FX rate.' : ''}
+            </p>
+          </div>
+          {availableProviders.length > 1 && (
+            <SegmentedControl
+              value={providerFilter}
+              onChange={(value) => setProviderFilter(value as ProviderFilter)}
+              data={providerControlData}
+            />
+          )}
         </div>
         <Button
           variant="light"
@@ -150,7 +240,7 @@ function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['group
           leftSection={showProducts ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}
           onClick={() => setShowProducts((value) => !value)}
         >
-          {showProducts ? 'Hide products' : `Show products (${group.products.length})`}
+          {showProducts ? 'Hide products' : `Show products (${filteredProductCount})`}
         </Button>
       </div>
 
@@ -228,9 +318,8 @@ function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['group
       )}
 
       <div className="space-y-6">
-        {fiscalYearChunks.map((fyChunk, chunkIndex) => {
+        {fiscalYearChunks.map((fyChunk) => {
           const yearTotal = sumMonthlyValues(fyChunk.months);
-          const yoy = getAdjacentFiscalYearPercentChange(fiscalYearChunks, chunkIndex);
           const chunkActuals = fyChunk.months.map((_, i) => actuals[fyChunk.startIndex + i] ?? null);
           const chunkHasActuals = chunkActuals.some((v) => v != null);
           const chunkActualTotal = chunkActuals.reduce<number>((sum, v) => sum + (v ?? 0), 0);
@@ -241,15 +330,8 @@ function PlatformForecastGrid({ group }: { group: PlatformForecastSummary['group
 
           return (
             <div key={fyChunk.label} className="border border-gray-200 rounded-lg overflow-hidden bg-white">
-              <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 text-sm font-semibold text-gray-700 flex items-center justify-between">
-                <span>
-                  {fyChunk.label} <span className="font-normal text-gray-500">({yearRangeLabel(fyChunk.months)})</span>
-                </span>
-                {yoy != null && (
-                  <span className={`text-xs font-normal ${yoy > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                    {formatPercentChange(yoy)} vs prior fiscal year
-                  </span>
-                )}
+              <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 text-sm font-semibold text-gray-700">
+                {fyChunk.label} <span className="font-normal text-gray-500">({yearRangeLabel(fyChunk.months)})</span>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[720px] text-sm">
@@ -629,16 +711,16 @@ export default publicCloudForecastPage(() => {
   return (
     <LoadingBox isLoading={isLoading}>
       <div className="space-y-6 p-4">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
+        <div className="flex flex-wrap items-start gap-4">
+          <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-bold">Public Cloud Forecast</h1>
             <p className="text-sm text-gray-600 mt-1">
               Read-only rollup of the latest approved forecast for every active public cloud product, with closed-month
-              actuals and variance. AWS forecasts are in USD and Azure forecasts in CAD, so totals are reported per
-              currency.
+              actuals and variance. All forecasts are in CAD. AWS invoice actuals arriving in USD are converted with the
+              monthly USD/CAD rate so platform totals stay in one currency.
             </p>
           </div>
-          <ExportButton onExport={() => downloadPlatformForecastExport()} />
+          <ExportButton className="ml-auto shrink-0" onExport={() => downloadPlatformForecastExport()} />
         </div>
 
         <div className="grid gap-4 sm:grid-cols-3">

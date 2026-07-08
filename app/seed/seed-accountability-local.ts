@@ -10,6 +10,7 @@ import {
 } from '../components/public-cloud/accountability/forecast-grid-utils';
 import prisma from '../core/prisma';
 import { getCurrentBillingPeriod } from '../helpers/accountability-periods';
+import { getUsdToCadRate } from '../helpers/usd-cad-fx';
 import { Provider } from '../prisma/client';
 import { seedDefaultCloudCostRulesConfig } from '../services/db/cloud-cost-rules';
 import {
@@ -128,8 +129,7 @@ function buildMonthlyValues(
   monthlyAmount: number,
   horizonMonths = FISCAL_FORECAST_HORIZON_MONTHS,
 ) {
-  const currency = product.provider === Provider.AZURE ? 'CAD' : 'USD';
-  return buildRollingFiscalForecastMonths(monthlyAmount, currency, new Date(), horizonMonths);
+  return buildRollingFiscalForecastMonths(monthlyAmount, 'CAD', new Date(), horizonMonths);
 }
 
 function printWalkthrough(licencePlate: string) {
@@ -191,7 +191,12 @@ export async function seedAccountabilityForProduct(
   }
 
   const forecastAmount = resolveMonthlyForecastAmount(product);
-  const currency: 'USD' | 'CAD' = product.provider === Provider.AZURE ? 'CAD' : 'USD';
+  // Forecasts are always CAD. AWS CSP payloads stay in USD (invoice currency).
+  const cspCurrency: 'USD' | 'CAD' = product.provider === Provider.AZURE ? 'CAD' : 'USD';
+  const { year, month } = getCurrentBillingPeriod();
+  const usdCadRate = getUsdToCadRate(year, month).rate;
+  const cspAmountScale = cspCurrency === 'USD' ? 1 / usdCadRate : 1;
+  const cspForecastAmount = Math.round(forecastAmount * cspAmountScale);
 
   if (!skipForecast) {
     console.log('Forecast:');
@@ -200,26 +205,25 @@ export async function seedAccountabilityForProduct(
     console.log('Forecast: skipped (--skip-forecast)');
   }
 
-  const { year, month } = getCurrentBillingPeriod();
   const now = new Date();
   const dayOfMonth = now.getDate();
   const daysInMonth = new Date(year, month, 0).getDate();
-  const spendToDate = Math.round(forecastAmount * 0.64);
-  const projectedMonthEnd = Math.round(forecastAmount * 1.1);
-  const varianceAmount = projectedMonthEnd - forecastAmount;
-  const variancePercent = forecastAmount > 0 ? (varianceAmount / forecastAmount) * 100 : 0;
-  const consumptionPercentOfForecast = forecastAmount > 0 ? (spendToDate / forecastAmount) * 100 : 0;
+  const spendToDate = Math.round(cspForecastAmount * 0.64);
+  const projectedMonthEnd = Math.round(cspForecastAmount * 1.1);
+  const varianceAmount = projectedMonthEnd - cspForecastAmount;
+  const variancePercent = cspForecastAmount > 0 ? (varianceAmount / cspForecastAmount) * 100 : 0;
+  const consumptionPercentOfForecast = cspForecastAmount > 0 ? (spendToDate / cspForecastAmount) * 100 : 0;
 
   console.log('CSP consumption snapshot:');
   await upsertConsumptionSnapshot({
     licencePlate,
     provider: product.provider,
-    currency,
+    currency: cspCurrency,
     billingPeriod: { year, month },
     asOf: now.toISOString(),
     spendToDate,
     projectedMonthEnd,
-    currentMonthForecast: forecastAmount,
+    currentMonthForecast: cspForecastAmount,
     varianceAmount,
     variancePercent,
     consumptionPercentOfForecast,
@@ -230,34 +234,36 @@ export async function seedAccountabilityForProduct(
         accountId: `${licencePlate}-dev`,
         environment: 'dev',
         spendToDate: Math.round(spendToDate * 0.35),
-        currency,
+        currency: cspCurrency,
       },
       {
         accountId: `${licencePlate}-test`,
         environment: 'test',
         spendToDate: Math.round(spendToDate * 0.25),
-        currency,
+        currency: cspCurrency,
       },
       {
         accountId: `${licencePlate}-prod`,
         environment: 'prod',
         spendToDate: Math.round(spendToDate * 0.4),
-        currency,
+        currency: cspCurrency,
       },
     ],
   });
-  console.log(`  ${currency} forecast ${forecastAmount}, spend ${spendToDate}, projected ${projectedMonthEnd}`);
+  console.log(
+    `  forecast CAD ${forecastAmount}; CSP ${cspCurrency} forecast ${cspForecastAmount}, spend ${spendToDate}, projected ${projectedMonthEnd}`,
+  );
 
   console.log('CSP spend history (3 closed months):');
   const historyMonths = billingPeriodMonthsBack(3).map((period, index) => {
-    const actual = Math.round(forecastAmount * (0.88 + index * 0.04));
-    const variance = actual - forecastAmount;
-    const variancePct = forecastAmount > 0 ? (variance / forecastAmount) * 100 : 0;
+    const actual = Math.round(cspForecastAmount * (0.88 + index * 0.04));
+    const variance = actual - cspForecastAmount;
+    const variancePct = cspForecastAmount > 0 ? (variance / cspForecastAmount) * 100 : 0;
     return {
       billingPeriod: period,
-      currency,
+      currency: cspCurrency,
       actualTotal: actual,
-      forecastTotal: forecastAmount,
+      forecastTotal: cspForecastAmount,
       varianceAmount: variance,
       variancePercent: variancePct,
     };
@@ -273,13 +279,13 @@ export async function seedAccountabilityForProduct(
   await recordConsumptionAlert({
     licencePlate,
     provider: product.provider,
-    currency,
+    currency: cspCurrency,
     billingPeriod: { year, month },
     triggeredAt: now.toISOString(),
     alertType: 'A1',
     spendToDate,
     projectedMonthEnd,
-    currentMonthForecast: forecastAmount,
+    currentMonthForecast: cspForecastAmount,
     varianceAmount,
     variancePercent,
     consumptionPercentOfForecast,

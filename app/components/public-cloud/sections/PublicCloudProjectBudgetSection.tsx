@@ -11,7 +11,7 @@ import AlertResponseModal from '@/components/public-cloud/accountability/AlertRe
 import { FISCAL_FORECAST_HORIZON_MONTHS } from '@/components/public-cloud/accountability/forecast-grid-utils';
 import ProjectBudgetForecastPanel from '@/components/public-cloud/accountability/ProjectBudgetForecastPanel';
 import CurrentMonthSpendPanel from '@/components/public-cloud/costs/CurrentMonthSpendPanel';
-import { Provider } from '@/prisma/client';
+import { convertUsdToCad, providerReportsActualsInUsd } from '@/helpers/usd-cad-fx';
 import {
   approvePublicCloudForecast,
   createPublicCloudForecast,
@@ -101,72 +101,104 @@ export default function PublicCloudProjectBudgetSection({
   const [pendingRejectForecastId, setPendingRejectForecastId] = useState<string | null>(null);
 
   const permissions = product?._permissions;
-  const accountabilityCurrency = data?.snapshot?.currency ?? (product?.provider === Provider.AZURE ? 'CAD' : 'USD');
+  const accountabilityCurrency = 'CAD';
 
-  const forecastActions = data
-    ? (() => {
-        const draftForecast = data.forecasts?.find((f: { status: string }) => f.status === 'DRAFT');
-        const pendingForecast = data.forecasts?.find((f: { status: string }) => f.status === 'PENDING_APPROVAL');
-        const latestRejected = [...(data.forecasts ?? [])]
-          .filter((f: { status: string }) => f.status === 'REJECTED')
-          .sort((a: { version: number }, b: { version: number }) => b.version - a.version)[0];
+  const draftForecast = data?.forecasts?.find((f: { status: string }) => f.status === 'DRAFT');
+  const pendingForecast = data?.forecasts?.find((f: { status: string }) => f.status === 'PENDING_APPROVAL');
+  const latestRejected = data
+    ? [...(data.forecasts ?? [])]
+        .filter((f: { status: string }) => f.status === 'REJECTED')
+        .sort((a: { version: number }, b: { version: number }) => b.version - a.version)[0]
+    : undefined;
 
-        return (
-          <div className="space-y-3">
-            {latestRejected && !draftForecast && !pendingForecast && (
-              <Alert color="orange" title="Latest forecast was rejected">
-                {latestRejected.rejectionReason ?? 'No rejection reason provided.'}
-              </Alert>
+  const canEditForecast = Boolean(permissions?.editForecast);
+  const canApproveForecast = Boolean(permissions?.approveForecast);
+  const showEditAction = canEditForecast && !draftForecast && !pendingForecast;
+  const showSubmitAction = Boolean(draftForecast && canEditForecast);
+  const showApproveActions = Boolean(pendingForecast && canApproveForecast);
+  const hasForecastToolbarActions = showEditAction || showSubmitAction || showApproveActions;
+
+  const forecastToolbar = data ? (
+    <div className="space-y-3">
+      {latestRejected && !draftForecast && !pendingForecast && (
+        <Alert color="orange" title="Latest forecast was rejected">
+          {latestRejected.rejectionReason ?? 'No rejection reason provided.'}
+        </Alert>
+      )}
+      {hasForecastToolbarActions && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {showEditAction && (
+              <Button
+                type="button"
+                variant="default"
+                loading={createForecast.isPending}
+                onClick={() => createForecast.mutate()}
+              >
+                {data.activeForecast ? 'Edit forecast' : 'Create forecast from product budget'}
+              </Button>
             )}
-            <div className="flex flex-wrap gap-2">
-              {permissions?.editForecast && !draftForecast && !pendingForecast && (
-                <Button type="button" loading={createForecast.isPending} onClick={() => createForecast.mutate()}>
-                  {data.activeForecast ? 'Edit forecast' : 'Create forecast from product budget'}
-                </Button>
-              )}
-              {draftForecast && permissions?.editForecast && (
+            {draftForecast && (
+              <span className="text-sm text-gray-600">
+                Editing draft v{draftForecast.version}. Save cell changes in the table, then submit when ready.
+              </span>
+            )}
+            {pendingForecast && !canApproveForecast && (
+              <span className="text-sm text-gray-600">Forecast is pending approval.</span>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {showSubmitAction && draftForecast && (
+              <Button
+                type="button"
+                color="blue"
+                loading={submitForecast.isPending}
+                onClick={() => submitForecast.mutate(draftForecast.id)}
+              >
+                Submit forecast for approval
+              </Button>
+            )}
+            {showApproveActions && pendingForecast && (
+              <>
                 <Button
                   type="button"
-                  loading={submitForecast.isPending}
-                  onClick={() => submitForecast.mutate(draftForecast.id)}
+                  color="red"
+                  variant="light"
+                  onClick={() => {
+                    setPendingRejectForecastId(pendingForecast.id);
+                    setRejectModalOpen(true);
+                  }}
                 >
-                  Submit forecast for approval
+                  Reject forecast
                 </Button>
-              )}
-              {pendingForecast && permissions?.approveForecast && (
-                <>
-                  <Button
-                    type="button"
-                    loading={approveForecast.isPending}
-                    onClick={() => approveForecast.mutate(pendingForecast.id)}
-                  >
-                    Approve forecast
-                  </Button>
-                  <Button
-                    type="button"
-                    color="red"
-                    variant="light"
-                    onClick={() => {
-                      setPendingRejectForecastId(pendingForecast.id);
-                      setRejectModalOpen(true);
-                    }}
-                  >
-                    Reject forecast
-                  </Button>
-                </>
-              )}
-            </div>
+                <Button
+                  type="button"
+                  color="green"
+                  loading={approveForecast.isPending}
+                  onClick={() => approveForecast.mutate(pendingForecast.id)}
+                >
+                  Approve forecast
+                </Button>
+              </>
+            )}
           </div>
-        );
-      })()
-    : null;
+        </div>
+      )}
+    </div>
+  ) : null;
 
   const monthlyActuals =
-    data?.spendHistory?.months?.map((m: { year: number; month: number; actualTotal: number }) => ({
-      year: m.year,
-      month: m.month,
-      amount: m.actualTotal,
-    })) ?? [];
+    data?.spendHistory?.months?.map((m: { year: number; month: number; actualTotal: number; currency?: string }) => {
+      const amount =
+        m.currency === 'USD' || providerReportsActualsInUsd(product?.provider ?? '')
+          ? convertUsdToCad(m.actualTotal, m.year, m.month)
+          : m.actualTotal;
+      return {
+        year: m.year,
+        month: m.month,
+        amount,
+      };
+    }) ?? [];
 
   return (
     <div className="space-y-8">
@@ -216,7 +248,6 @@ export default function PublicCloudProjectBudgetSection({
               <section className="space-y-4">
                 <h4 className="font-semibold">Fiscal year forecast</h4>
                 {(() => {
-                  const draftForecast = data.forecasts?.find((f: { status: string }) => f.status === 'DRAFT');
                   const displayForecast = draftForecast ?? data.activeForecast;
                   const activeBaseline = data.activeForecast?.monthlyValues ?? null;
 
@@ -224,13 +255,13 @@ export default function PublicCloudProjectBudgetSection({
                     return (
                       <div className="text-sm text-gray-600 space-y-3">
                         <p>No forecast yet. Create a fiscal year forecast from your product budget estimates.</p>
-                        {forecastActions}
+                        {forecastToolbar}
                       </div>
                     );
                   }
 
                   return (
-                    <>
+                    <div className="space-y-4">
                       <ProjectBudgetForecastPanel
                         licencePlate={licencePlate}
                         provider={product?.provider}
@@ -246,12 +277,12 @@ export default function PublicCloudProjectBudgetSection({
                         activeBaseline={draftForecast ? activeBaseline : null}
                         quarterlyReview={data.quarterlyReview}
                         editable={Boolean(draftForecast && permissions?.editForecast)}
+                        workflowActions={forecastToolbar}
                         onSaved={refresh}
                         onForecastReviewed={() => markForecastReviewed.mutate()}
                         forecastReviewSaving={markForecastReviewed.isPending}
                       />
-                      {forecastActions}
-                    </>
+                    </div>
                   );
                 })()}
               </section>

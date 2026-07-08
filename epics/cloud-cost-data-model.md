@@ -11,7 +11,7 @@ Jira story status: [cloud-cost-jira-backlog.md](./cloud-cost-jira-backlog.md).
 | Capability                                | Status                  | Location                                                                                                          |
 | ----------------------------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | Per-environment monthly budget on product | Implemented             | `PublicCloudProduct.budget` (`dev`, `test`, `prod`, `tools`)                                                      |
-| Provider currency (AWS USD, Azure CAD)    | Implemented             | `Provider` enum, `Budget` form, eMOU PDF                                                                          |
+| Provider currency (AWS & Azure CAD)       | Implemented             | Forecasts/budgets in CAD; AWS CSP actuals converted via monthly USD/CAD FX                                        |
 | eMOU signing and director review          | Implemented             | `PublicCloudBilling`, tasks `SIGN_PUBLIC_CLOUD_MOU`, `REVIEW_PUBLIC_CLOUD_MOU`                                    |
 | Account coding on billing records         | Implemented             | `PublicCloudBilling.accountCoding`                                                                                |
 | CSP consumption feed                      | Implemented             | `PUT /api/internal/csp/consumption`, `POST /api/internal/csp/alerts`, `PUT /api/internal/csp/consumption/history` |
@@ -280,7 +280,7 @@ type CspConsumptionHistory = {
 | Rule                | Detail                                                                                                                             |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | Licence plate       | Required; must match an active `PublicCloudProduct`                                                                                |
-| Currency            | `USD` for `AWS` / `AWS_LZA`; `CAD` for `AZURE`                                                                                     |
+| Currency            | `CAD` for all providers (AWS CSP actuals may arrive in `USD` and are converted)                                                    |
 | Amounts             | Non-negative decimals; two decimal places in storage                                                                               |
 | Forecast comparison | `currentMonthForecast` comes from Registry approved forecast for that month; CSP may echo it back in payloads                      |
 | Idempotency         | Same `licencePlate` + `billingPeriod` + `asOf` (snapshot) or `alertType` + `milestonePercent` (alert) should upsert, not duplicate |

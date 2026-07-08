@@ -12,6 +12,7 @@ import {
 import prisma from '@/core/prisma';
 import { getCurrentBillingPeriod, getCurrentQuarter, getMPlusOneDate } from '@/helpers/accountability-periods';
 import { parsePaginationParams } from '@/helpers/pagination';
+import { convertUsdToCad, providerReportsActualsInUsd } from '@/helpers/usd-cad-fx';
 import {
   AccountabilityAlertLevel,
   AccountabilityAlertStatus,
@@ -35,24 +36,32 @@ export async function getActiveApprovedForecast(licencePlate: string) {
   });
 }
 
-const PROVIDER_FORECAST_CURRENCY: Record<Provider, 'USD' | 'CAD'> = {
-  [Provider.AWS]: 'USD',
-  [Provider.AWS_LZA]: 'USD',
+/** All public-cloud forecasts and platform rollups are reported in CAD. */
+export const PROVIDER_FORECAST_CURRENCY: Record<Provider, 'CAD'> = {
+  [Provider.AWS]: 'CAD',
+  [Provider.AWS_LZA]: 'CAD',
   [Provider.AZURE]: 'CAD',
 };
+
+function toCadActual(amount: number, currency: string, year: number, month: number, provider: Provider): number {
+  if (currency === 'CAD') return amount;
+  if (currency === 'USD' || providerReportsActualsInUsd(provider)) {
+    return convertUsdToCad(amount, year, month);
+  }
+  return amount;
+}
 
 /**
  * Platform-wide forecast rollup for the governance dashboard: sums the latest
  * approved forecast of every active public cloud product per month, alongside
- * actual spend from closed-month CSP history. AWS forecasts are USD and Azure
- * forecasts are CAD, so totals are grouped by currency rather than combined
- * into a single (meaningless) number.
+ * actual spend from closed-month CSP history. All forecasts and rollups are in
+ * CAD. AWS CSP actuals arriving in USD are converted with the monthly FX rate.
  */
 export type PlatformForecastProduct = {
   licencePlate: string;
   name: string;
   provider: Provider;
-  currency: 'USD' | 'CAD';
+  currency: 'CAD';
   hasForecast: boolean;
   monthlyTotals: MonthlyValue[];
   monthlyActuals: (number | null)[];
@@ -80,7 +89,7 @@ export async function getPlatformForecastSummary() {
     }),
     prisma.cloudSpendHistory.findMany({
       where: { licencePlate: { in: licencePlates } },
-      select: { licencePlate: true, months: true },
+      select: { licencePlate: true, provider: true, months: true },
     }),
   ]);
 
@@ -92,15 +101,26 @@ export async function getPlatformForecastSummary() {
     }
   }
 
-  const historyMonthsByPlate = new Map<string, { year: number; month: number; actualTotal: number }[]>();
+  const historyMonthsByPlate = new Map<
+    string,
+    { year: number; month: number; actualTotal: number; currency: string; provider: Provider }[]
+  >();
   for (const history of spendHistories) {
     const months = historyMonthsByPlate.get(history.licencePlate) ?? [];
-    months.push(...history.months);
+    months.push(
+      ...history.months.map((month) => ({
+        year: month.year,
+        month: month.month,
+        actualTotal: month.actualTotal,
+        currency: month.currency,
+        provider: history.provider,
+      })),
+    );
     historyMonthsByPlate.set(history.licencePlate, months);
   }
 
   type CurrencyGroup = {
-    currency: 'USD' | 'CAD';
+    currency: 'CAD';
     providers: Set<Provider>;
     productCount: number;
     forecastCount: number;
@@ -108,7 +128,7 @@ export async function getPlatformForecastSummary() {
     actualsByMonth: Map<string, number>;
     products: PlatformForecastProduct[];
   };
-  const groups = new Map<'USD' | 'CAD', CurrencyGroup>();
+  const groups = new Map<'CAD', CurrencyGroup>();
 
   for (const product of products) {
     const currency = PROVIDER_FORECAST_CURRENCY[product.provider];
@@ -131,8 +151,15 @@ export async function getPlatformForecastSummary() {
     const productActualsByMonth = new Map<string, number>();
     for (const closedMonth of historyMonthsByPlate.get(product.licencePlate) ?? []) {
       const key = monthKey(closedMonth.year, closedMonth.month);
-      productActualsByMonth.set(key, (productActualsByMonth.get(key) ?? 0) + closedMonth.actualTotal);
-      group.actualsByMonth.set(key, (group.actualsByMonth.get(key) ?? 0) + closedMonth.actualTotal);
+      const cadActual = toCadActual(
+        closedMonth.actualTotal,
+        closedMonth.currency,
+        closedMonth.year,
+        closedMonth.month,
+        closedMonth.provider,
+      );
+      productActualsByMonth.set(key, (productActualsByMonth.get(key) ?? 0) + cadActual);
+      group.actualsByMonth.set(key, (group.actualsByMonth.get(key) ?? 0) + cadActual);
     }
 
     const rawForecast = activeForecastByPlate.get(product.licencePlate);
@@ -141,16 +168,23 @@ export async function getPlatformForecastSummary() {
       group.forecastCount += 1;
       for (const value of rawForecast) {
         const key = monthKey(value.year, value.month);
+        // Normalize legacy AWS USD forecast rows into CAD reporting amounts.
+        const amount = value.currency === 'USD' ? convertUsdToCad(value.amount, value.year, value.month) : value.amount;
         const existing = group.totalsByMonth.get(key);
         if (existing) {
-          existing.amount += value.amount;
+          existing.amount += amount;
         } else {
-          group.totalsByMonth.set(key, { year: value.year, month: value.month, amount: value.amount, currency });
+          group.totalsByMonth.set(key, { year: value.year, month: value.month, amount, currency });
         }
       }
     }
 
-    const monthlyTotals = mergeMonthlyValuesOntoFiscalHorizon(rawForecast ?? [], currency);
+    const normalizedForecast = (rawForecast ?? []).map((value) => ({
+      ...value,
+      amount: value.currency === 'USD' ? convertUsdToCad(value.amount, value.year, value.month) : value.amount,
+      currency,
+    }));
+    const monthlyTotals = mergeMonthlyValuesOntoFiscalHorizon(normalizedForecast, currency);
     const monthlyActuals = monthlyTotals.map(
       (slot) => productActualsByMonth.get(monthKey(slot.year, slot.month)) ?? null,
     );
@@ -179,25 +213,23 @@ export async function getPlatformForecastSummary() {
   return {
     totalProducts: products.length,
     productsWithForecast: activeForecastByPlate.size,
-    groups: [...groups.values()]
-      .sort((a, b) => a.currency.localeCompare(b.currency))
-      .map((group) => {
-        const monthlyTotals = mergeMonthlyValuesOntoFiscalHorizon([...group.totalsByMonth.values()], group.currency);
-        // Aligned with monthlyTotals; null for months without closed-month actuals.
-        const monthlyActuals = monthlyTotals.map(
-          (slot) => group.actualsByMonth.get(monthKey(slot.year, slot.month)) ?? null,
-        );
+    groups: [...groups.values()].map((group) => {
+      const monthlyTotals = mergeMonthlyValuesOntoFiscalHorizon([...group.totalsByMonth.values()], group.currency);
+      // Aligned with monthlyTotals; null for months without closed-month actuals.
+      const monthlyActuals = monthlyTotals.map(
+        (slot) => group.actualsByMonth.get(monthKey(slot.year, slot.month)) ?? null,
+      );
 
-        return {
-          currency: group.currency,
-          providers: [...group.providers].sort(),
-          productCount: group.productCount,
-          forecastCount: group.forecastCount,
-          monthlyTotals,
-          monthlyActuals,
-          products: group.products,
-        };
-      }),
+      return {
+        currency: group.currency,
+        providers: [...group.providers].sort(),
+        productCount: group.productCount,
+        forecastCount: group.forecastCount,
+        monthlyTotals,
+        monthlyActuals,
+        products: group.products,
+      };
+    }),
   };
 }
 
@@ -906,7 +938,7 @@ export function seedForecastFromProductBudget(
     tools: boolean;
   },
 ) {
-  const currency = provider === Provider.AZURE ? 'CAD' : 'USD';
+  const currency = PROVIDER_FORECAST_CURRENCY[provider];
   let total = 0;
   if (environmentsEnabled.development) total += budget.dev;
   if (environmentsEnabled.test) total += budget.test;

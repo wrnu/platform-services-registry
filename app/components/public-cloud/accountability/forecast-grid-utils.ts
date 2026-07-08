@@ -225,18 +225,17 @@ export function getCellStatuses(
   },
 ): ForecastCellStatus[] {
   const { quarterlyReview, confirmedKeys, editable, now = new Date() } = options;
+  // Highlight months needing review even in read-only so users see work before entering edit.
   const reviewDue =
-    editable &&
-    quarterlyReview &&
-    !quarterlyReview.poSignedOff &&
-    !quarterlyReview.forecastMonthsReviewed &&
-    quarterlyReview.status !== 'COMPLETE';
+    Boolean(quarterlyReview) &&
+    !quarterlyReview?.poSignedOff &&
+    !quarterlyReview?.forecastMonthsReviewed &&
+    quarterlyReview?.status !== 'COMPLETE';
 
   return values.map((v) => {
     const key = monthKey(v.year, v.month);
 
     if (isPastMonth(v.year, v.month, now)) {
-      if (!editable) return 'confirmed';
       return 'past';
     }
 
@@ -349,18 +348,6 @@ export function isPartialFiscalYearChunk(fyChunk: FiscalYearChunk) {
   return fyChunk.months.length < 12;
 }
 
-export function getAdjacentFiscalYearPercentChange(fiscalYearChunks: FiscalYearChunk[], chunkIndex: number) {
-  if (chunkIndex <= 0) return null;
-  const current = fiscalYearChunks[chunkIndex];
-  const previous = fiscalYearChunks[chunkIndex - 1];
-  // Comparing a partial year against a full year is meaningless.
-  if (isPartialFiscalYearChunk(current) || isPartialFiscalYearChunk(previous)) return null;
-  const currentTotal = sumMonthlyValues(current.months);
-  const previousTotal = sumMonthlyValues(previous.months);
-  if (previousTotal <= 0) return null;
-  return ((currentTotal - previousTotal) / previousTotal) * 100;
-}
-
 export type ForecastIncrease = {
   year: number;
   month: number;
@@ -398,9 +385,4 @@ export function getProviderSpendLabel(provider?: string) {
     default:
       return 'Cloud Spend';
   }
-}
-
-export function formatPercentChange(value: number) {
-  const rounded = value.toFixed(1);
-  return `${value > 0 ? '+' : ''}${rounded}%`;
 }

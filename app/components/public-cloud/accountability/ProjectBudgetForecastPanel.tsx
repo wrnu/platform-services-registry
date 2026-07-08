@@ -3,7 +3,8 @@
 import { Alert, Button, Modal, NumberInput, Radio, Textarea } from '@mantine/core';
 import { IconCheck } from '@tabler/icons-react';
 import { useMutation } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
+import { convertUsdToCad, formatUsdCadRate, getUsdToCadRate, providerReportsActualsInUsd } from '@/helpers/usd-cad-fx';
 import { updatePublicCloudForecast } from '@/services/backend/public-cloud/accountability';
 import {
   applyAmountToFutureMonths,
@@ -11,8 +12,6 @@ import {
   countCellsAwaitingForecast,
   FISCAL_FORECAST_HORIZON_MONTHS,
   formatForecastAmount,
-  formatPercentChange,
-  getAdjacentFiscalYearPercentChange,
   getCellStatuses,
   getFiscalYearChunks,
   getForecastIncreases,
@@ -66,7 +65,7 @@ function CellEditor({
   const [showApplyFuture, setShowApplyFuture] = useState(false);
 
   useEffect(() => {
-    setDraftValue(value);
+    setDraftValue(Math.round(value));
     setShowApplyFuture(false);
   }, [value]);
 
@@ -85,16 +84,18 @@ function CellEditor({
     return (
       <div className="space-y-1">
         <NumberInput
-          value={draftValue}
+          value={Math.round(draftValue)}
           min={0}
           hideControls
+          decimalScale={0}
+          allowDecimal={false}
           thousandSeparator=","
-          prefix={currency === 'USD' ? '$' : '$'}
+          prefix="$"
           onChange={(val) => {
-            const next = typeof val === 'number' ? val : 0;
+            const next = typeof val === 'number' ? Math.round(val) : 0;
             setDraftValue(next);
             onChange(next);
-            setShowApplyFuture(next !== value);
+            setShowApplyFuture(next !== Math.round(value));
           }}
           classNames={{ input: 'text-center font-medium text-sm h-9' }}
           size="sm"
@@ -117,7 +118,11 @@ function CellEditor({
 
   return (
     <div className="flex flex-col items-center justify-center min-h-9">
-      <span className={`font-medium text-sm ${status === 'suggested' ? 'text-gray-400' : 'text-gray-900'}`}>
+      <span
+        className={`font-medium text-sm ${
+          status === 'suggested' || status === 'needsReview' ? 'text-gray-700' : 'text-gray-900'
+        }`}
+      >
         {formatForecastAmount(value, currency)}
       </span>
       {status === 'suggested' && <span className="text-[10px] uppercase text-gray-400 tracking-wide">suggested</span>}
@@ -140,6 +145,7 @@ export default function ProjectBudgetForecastPanel({
   quarterlyReview,
   editable,
   provider,
+  workflowActions,
   onSaved,
   onForecastReviewed,
   forecastReviewSaving,
@@ -152,11 +158,13 @@ export default function ProjectBudgetForecastPanel({
   quarterlyReview: QuarterlyReview | null;
   editable: boolean;
   provider?: string;
+  workflowActions?: ReactNode;
   onSaved: () => void;
   onForecastReviewed?: () => void;
   forecastReviewSaving?: boolean;
 }) {
-  const currency = monthlyValues[0]?.currency ?? 'CAD';
+  const currency = 'CAD';
+  const showAwsFx = providerReportsActualsInUsd(provider ?? '');
   const spendLabel = getProviderSpendLabel(provider);
   const actualsByKey = useMemo(
     () => new Map(monthlyActuals.map((v) => [monthKey(v.year, v.month), v.amount])),
@@ -164,14 +172,40 @@ export default function ProjectBudgetForecastPanel({
   );
   const hasActuals = monthlyActuals.length > 0;
 
+  const cadMonthlyValues = useMemo(
+    () =>
+      monthlyValues.map((value) => ({
+        ...value,
+        amount:
+          value.currency === 'USD' ? convertUsdToCad(value.amount, value.year, value.month) : Math.round(value.amount),
+        currency: 'CAD' as const,
+      })),
+    [monthlyValues],
+  );
+
+  const cadActiveBaseline = useMemo(
+    () =>
+      activeBaseline
+        ? activeBaseline.map((value) => ({
+            ...value,
+            amount:
+              value.currency === 'USD'
+                ? convertUsdToCad(value.amount, value.year, value.month)
+                : Math.round(value.amount),
+            currency: 'CAD' as const,
+          }))
+        : null,
+    [activeBaseline],
+  );
+
   const baselineValues = useMemo(
-    () => mergeMonthlyValuesOntoFiscalHorizon(monthlyValues, currency),
-    [monthlyValues, currency],
+    () => mergeMonthlyValuesOntoFiscalHorizon(cadMonthlyValues, currency),
+    [cadMonthlyValues, currency],
   );
 
   const baselineActive = useMemo(
-    () => (activeBaseline ? mergeMonthlyValuesOntoFiscalHorizon(activeBaseline, currency) : null),
-    [activeBaseline, currency],
+    () => (cadActiveBaseline ? mergeMonthlyValuesOntoFiscalHorizon(cadActiveBaseline, currency) : null),
+    [cadActiveBaseline, currency],
   );
 
   const [values, setValues] = useState(baselineValues);
@@ -207,8 +241,6 @@ export default function ProjectBudgetForecastPanel({
   const isDirty = JSON.stringify(values) !== JSON.stringify(baselineValues);
   const fiscalYearChunks = getFiscalYearChunks(values);
   const grandTotal = sumMonthlyValues(values);
-  const savedGrandTotal = sumMonthlyValues(comparisonBaseline);
-  const grandTotalChange = savedGrandTotal > 0 ? ((grandTotal - savedGrandTotal) / savedGrandTotal) * 100 : null;
 
   const quarterKeys = new Set(
     values.filter((_, i) => cellStatuses[i] === 'needsReview').map((v) => monthKey(v.year, v.month)),
@@ -238,7 +270,7 @@ export default function ProjectBudgetForecastPanel({
         year: v.year,
         month: v.month,
         amount: Number(v.amount),
-        currency: v.currency as 'USD' | 'CAD',
+        currency: 'CAD' as const,
       })),
       horizonMonths: FISCAL_FORECAST_HORIZON_MONTHS,
       ...(justification
@@ -265,7 +297,8 @@ export default function ProjectBudgetForecastPanel({
   const updateAmount = (index: number, amount: number) => {
     const cell = values[index];
     if (!cell || isPastMonth(cell.year, cell.month)) return;
-    setValues((prev) => prev.map((v, i) => (i === index ? { ...v, amount } : v)));
+    const rounded = Math.round(amount);
+    setValues((prev) => prev.map((v, i) => (i === index ? { ...v, amount: rounded } : v)));
     const key = monthKey(values[index].year, values[index].month);
     setConfirmedKeys((prev) => {
       const next = new Set(prev);
@@ -337,14 +370,19 @@ export default function ProjectBudgetForecastPanel({
     <div className="space-y-4">
       <div className="text-sm text-gray-600 space-y-1">
         <p>
-          All costs are in{' '}
-          <span className="font-medium text-gray-800">{currency === 'CAD' ? 'Canadian dollars' : 'US dollars'}</span>.
-          Fiscal years run April–March.
+          All forecast amounts are in <span className="font-medium text-gray-800">Canadian dollars</span>. Fiscal years
+          run April–March.
         </p>
         <p>
-          Rolling {FISCAL_FORECAST_HORIZON_MONTHS}-month forecast ({yearRangeLabel(values)}). Past months of the current
-          fiscal year are locked and shown for reference; all upcoming months stay editable.
+          Rolling {FISCAL_FORECAST_HORIZON_MONTHS}-month forecast ({yearRangeLabel(values)}). Past months are locked and
+          shown for reference. Months that need review are highlighted before you enter edit mode.
         </p>
+        {showAwsFx && (
+          <p>
+            AWS invoices in USD. Closed-month actuals are converted to CAD using the monthly USD/CAD rate shown under
+            each month (actual when known, tentative for the current and future months).
+          </p>
+        )}
       </div>
 
       {showForecastReviewAction && (
@@ -398,28 +436,59 @@ export default function ProjectBudgetForecastPanel({
         </Alert>
       )}
 
-      {editable && (
-        <div className="flex flex-wrap items-center justify-between gap-3 border border-gray-200 rounded-md px-3 py-2 bg-white">
+      <div className="sticky top-0 z-20 -mx-1 px-1 py-2 bg-gray-50/95 backdrop-blur border-b border-gray-200 space-y-2">
+        {workflowActions}
+        <div className="flex flex-wrap items-center justify-between gap-3 border border-gray-200 rounded-md px-3 py-2 bg-white shadow-sm">
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="text-gray-500 font-medium">Forecast tools:</span>
-            <Button type="button" size="compact-sm" variant="default" onClick={copyAcrossSuggested}>
-              Copy value across range
-            </Button>
+            {editable ? (
+              <>
+                <span className="text-gray-500 font-medium">Forecast tools:</span>
+                <Button type="button" size="compact-sm" variant="default" onClick={copyAcrossSuggested}>
+                  Copy value across range
+                </Button>
+                <Button type="button" size="compact-sm" variant="default" disabled={!isDirty} onClick={discardChanges}>
+                  Discard changes
+                </Button>
+                <Button
+                  type="button"
+                  size="compact-sm"
+                  color="primary"
+                  loading={save.isPending}
+                  disabled={!isDirty}
+                  onClick={handleSaveClick}
+                >
+                  Save forecast
+                </Button>
+              </>
+            ) : (
+              <span className="text-gray-500 font-medium">Forecast cell states</span>
+            )}
           </div>
-          <div className="flex flex-wrap gap-3 text-xs text-gray-600">
+          <div className="flex flex-wrap items-center gap-3 text-xs text-gray-600">
+            {editable && awaitingCount > 0 && (
+              <span className="font-medium text-gray-800">{awaitingCount} cells awaiting forecast</span>
+            )}
             <span className="flex items-center gap-1">
               <IconCheck size={14} className="text-green-600" /> Confirmed
             </span>
             <span className="flex items-center gap-1">
               <span className="w-3 h-3 rounded-sm bg-orange-200 border border-orange-400" /> Needs review
             </span>
-            <span className="text-gray-400">$0 Suggested</span>
+            {editable && <span className="text-gray-400">$0 Suggested</span>}
             <span className="flex items-center gap-1">
-              <span className="w-3 h-3 rounded-sm bg-gray-200 border border-gray-300" /> Past (actuals)
+              <span className="w-3 h-3 rounded-sm bg-gray-200 border border-gray-300" /> Past (locked)
             </span>
           </div>
         </div>
-      )}
+        {editable && (
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600 px-1">
+            {forecast.updatedAt && <span>Last saved {new Date(forecast.updatedAt).toLocaleString()}</span>}
+            <span>
+              Draft v{forecast.version} · {forecast.status.replace(/_/g, ' ')}
+            </span>
+          </div>
+        )}
+      </div>
 
       <div className="space-y-6">
         {fiscalYearChunks.map((fyChunk) => {
@@ -442,7 +511,26 @@ export default function ProjectBudgetForecastPanel({
                       <th className="px-3 py-2 text-left text-gray-500 w-28 sticky left-0 bg-white">{spendLabel}</th>
                       {fyChunk.months.map((v) => (
                         <th key={monthKey(v.year, v.month)} className="px-2 py-2 text-center text-gray-500 font-medium">
-                          {shortMonthLabel(v.year, v.month)}
+                          <div>{shortMonthLabel(v.year, v.month)}</div>
+                          {showAwsFx &&
+                            (() => {
+                              const fx = getUsdToCadRate(v.year, v.month);
+                              return (
+                                <div
+                                  className={`text-[10px] font-normal mt-0.5 ${
+                                    fx.status === 'actual' ? 'text-gray-500' : 'text-amber-700'
+                                  }`}
+                                  title={
+                                    fx.status === 'actual'
+                                      ? 'Actual USD/CAD rate used for this closed month'
+                                      : 'Tentative USD/CAD rate (AWS typically settles a few days after month end)'
+                                  }
+                                >
+                                  FX {formatUsdCadRate(fx.rate)}
+                                  {fx.status === 'tentative' ? ' tent.' : ''}
+                                </div>
+                              );
+                            })()}
                         </th>
                       ))}
                       <th className="px-3 py-2 text-center font-semibold bg-amber-50 text-gray-800">TOTAL</th>
@@ -467,9 +555,14 @@ export default function ProjectBudgetForecastPanel({
 
                         return (
                           <td key={monthKey(v.year, v.month)} className={`px-1 py-1 ${cellClass} relative`}>
-                            {status === 'confirmed' && editable && (
+                            {status === 'confirmed' && (
                               <div className="flex justify-center mb-0.5">
                                 <IconCheck size={14} className="text-green-600" />
+                              </div>
+                            )}
+                            {status === 'needsReview' && !editable && (
+                              <div className="flex justify-center mb-0.5">
+                                <span className="text-[10px] uppercase tracking-wide text-orange-700">Review</span>
                               </div>
                             )}
                             <CellEditor
@@ -523,9 +616,8 @@ export default function ProjectBudgetForecastPanel({
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
-        {fiscalYearChunks.map((fyChunk, fyIndex) => {
+        {fiscalYearChunks.map((fyChunk) => {
           const yearTotal = sumMonthlyValues(fyChunk.months);
-          const yoy = getAdjacentFiscalYearPercentChange(fiscalYearChunks, fyIndex);
           const isPartial = isPartialFiscalYearChunk(fyChunk);
           const inProgress = isInProgressFiscalYear(fyChunk);
 
@@ -533,11 +625,7 @@ export default function ProjectBudgetForecastPanel({
             <div key={fyChunk.label} className="rounded-lg border border-gray-200 p-4 bg-white">
               <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{fyChunk.label} total</div>
               <div className="text-2xl font-bold text-gray-900 mt-1">{formatForecastAmount(yearTotal, currency)}</div>
-              {yoy != null ? (
-                <div className={`text-sm mt-1 ${yoy > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                  {formatPercentChange(yoy)} vs prior fiscal year
-                </div>
-              ) : isPartial ? (
+              {isPartial ? (
                 <div className="text-sm text-gray-500 mt-1">
                   First {fyChunk.months.length} month{fyChunk.months.length === 1 ? '' : 's'} of the fiscal year
                   (rolling window)
@@ -555,46 +643,13 @@ export default function ProjectBudgetForecastPanel({
             {FISCAL_FORECAST_HORIZON_MONTHS}-month forecast total
           </div>
           <div className="text-2xl font-bold text-gray-900 mt-1">{formatForecastAmount(grandTotal, currency)}</div>
-          {grandTotalChange != null ? (
-            <div className={`text-sm mt-1 ${grandTotalChange > 0 ? 'text-red-600' : 'text-green-600'}`}>
-              {formatPercentChange(grandTotalChange)} vs last saved forecast
-            </div>
-          ) : (
-            <div className="text-xs text-gray-600 mt-1">{yearRangeLabel(values)}</div>
-          )}
+          <div className="text-xs text-gray-600 mt-1">{yearRangeLabel(values)}</div>
         </div>
       </div>
 
       <p className="text-xs text-gray-500">
-        Saving creates a versioned snapshot used as the baseline for year-over-year comparison. Previous versions are
-        retained in the forecast history.
+        Saving creates a versioned snapshot. Previous versions are retained in the forecast history.
       </p>
-
-      {editable && (
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 pt-4">
-          <div className="text-sm text-gray-600 space-y-0.5">
-            {awaitingCount > 0 && <p className="font-medium text-gray-800">{awaitingCount} cells awaiting forecast</p>}
-            {forecast.updatedAt && <p>Last saved {new Date(forecast.updatedAt).toLocaleString()}</p>}
-            <p className="text-xs">
-              Draft v{forecast.version} · {forecast.status.replace(/_/g, ' ')}
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Button type="button" variant="default" disabled={!isDirty} onClick={discardChanges}>
-              Discard changes
-            </Button>
-            <Button
-              type="button"
-              color="primary"
-              loading={save.isPending}
-              disabled={!isDirty}
-              onClick={handleSaveClick}
-            >
-              Save forecast
-            </Button>
-          </div>
-        </div>
-      )}
 
       <Modal opened={saveModalOpen} onClose={() => setSaveModalOpen(false)} title="Explain forecast increases" centered>
         <div className="space-y-4">

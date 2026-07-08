@@ -5,8 +5,6 @@ import {
   copyAmountAcrossEditableMonths,
   FISCAL_FORECAST_HORIZON_MONTHS,
   formatFiscalYearLabel,
-  formatPercentChange,
-  getAdjacentFiscalYearPercentChange,
   getFiscalYearChunks,
   getFiscalYearStartYear,
   getCellStatuses,
@@ -157,6 +155,25 @@ describe('getCellStatuses', () => {
     expect(statuses[julyIndex]).toBe('suggested');
     expect(statuses[nextFyIndex]).toBe('suggested');
   });
+
+  it('shows past and needs-review states in read-only view before edit is selected', () => {
+    const values = buildFiscalForecastMonths(2, 1000, 'CAD', june2026);
+    const statuses = getCellStatuses(values, {
+      quarterlyReview: { poSignedOff: false, status: 'IN_PROGRESS' },
+      activeBaseline: null,
+      confirmedKeys: new Set(),
+      editable: false,
+      now: june2026,
+    });
+
+    const aprilIndex = values.findIndex((v) => v.month === 4 && v.year === 2026);
+    const juneIndex = values.findIndex((v) => v.month === 6 && v.year === 2026);
+    const julyIndex = values.findIndex((v) => v.month === 7 && v.year === 2026);
+
+    expect(statuses[aprilIndex]).toBe('past');
+    expect(statuses[juneIndex]).toBe('needsReview');
+    expect(statuses[julyIndex]).toBe('needsReview');
+  });
 });
 
 describe('preserveLockedPastMonthlyValues', () => {
@@ -173,29 +190,6 @@ describe('preserveLockedPastMonthlyValues', () => {
 
     expect(april?.amount).toBe(1000);
     expect(july?.amount).toBe(9999);
-  });
-});
-
-describe('getAdjacentFiscalYearPercentChange', () => {
-  const june2026 = new Date(2026, 5, 15);
-
-  it('compares adjacent fiscal year totals', () => {
-    const months = buildFiscalForecastMonths(2, 1000, 'CAD', june2026);
-    for (let i = 12; i < months.length; i++) {
-      months[i].amount = 1200;
-    }
-    const chunks = getFiscalYearChunks(months);
-
-    expect(getAdjacentFiscalYearPercentChange(chunks, 0)).toBeNull();
-    expect(getAdjacentFiscalYearPercentChange(chunks, 1)).toBeCloseTo(20);
-  });
-
-  it('skips comparison against a partial fiscal year', () => {
-    const months = buildRollingFiscalForecastMonths(1000, 'CAD', june2026);
-    const chunks = getFiscalYearChunks(months);
-
-    expect(chunks.length).toBe(3);
-    expect(getAdjacentFiscalYearPercentChange(chunks, 2)).toBeNull();
   });
 });
 
@@ -246,10 +240,5 @@ describe('display helpers', () => {
     expect(getProviderSpendLabel('AZURE')).toBe('Azure Spend');
     expect(getProviderSpendLabel('AWS')).toBe('AWS Spend');
     expect(getProviderSpendLabel(undefined)).toBe('Cloud Spend');
-  });
-
-  it('formats percent change with sign', () => {
-    expect(formatPercentChange(12.34)).toBe('+12.3%');
-    expect(formatPercentChange(-5)).toBe('-5.0%');
   });
 });

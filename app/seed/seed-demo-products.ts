@@ -70,7 +70,7 @@ const BASE_AWS_PRODUCTS: DemoProductConfig[] = [
     licencePlate: 'f82c1a',
     name: 'Cost Model Test 2 (AWS LZA)',
     provider: Provider.AWS_LZA,
-    description: 'Local seed AWS LZA product for accountability and cost testing (USD).',
+    description: 'Local seed AWS LZA product for accountability and cost testing (forecasted in CAD).',
     budget: { dev: 8000, test: 6000, prod: 15000, tools: 3000 },
   },
   {

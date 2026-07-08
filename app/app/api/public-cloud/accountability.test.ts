@@ -2,6 +2,7 @@ import { expect } from '@jest/globals';
 import { FISCAL_FORECAST_HORIZON_MONTHS } from '@/components/public-cloud/accountability/forecast-grid-utils';
 import { GlobalRole } from '@/constants';
 import prisma from '@/core/prisma';
+import { convertUsdToCad } from '@/helpers/usd-cad-fx';
 import { AccountabilityAlertStatus, CloudCostForecastStatus, Provider } from '@/prisma/client';
 import { mockSessionByIdirGuid, mockSessionByRole, mockTeamServiceAccount } from '@/services/api-test/core';
 import {
@@ -47,7 +48,8 @@ describe('Public Cloud accountability APIs', () => {
   let licencePlate: string;
   let projectOwnerIdirGuid: string;
   let provider: Provider;
-  let currency: string;
+  let cspCurrency: string;
+  const forecastCurrency = 'CAD';
 
   beforeAll(async () => {
     await cleanUpAccountabilityData();
@@ -63,7 +65,7 @@ describe('Public Cloud accountability APIs', () => {
     const product = await prisma.publicCloudProduct.findFirst({ where: { licencePlate } });
     expect(product).toBeTruthy();
     provider = product!.provider;
-    currency = provider === Provider.AZURE ? 'CAD' : 'USD';
+    cspCurrency = provider === Provider.AZURE ? 'CAD' : 'USD';
   });
 
   describe('CSP ingest (service account)', () => {
@@ -72,7 +74,7 @@ describe('Public Cloud accountability APIs', () => {
     });
 
     it('upserts consumption snapshot', async () => {
-      const response = await putCspConsumption(buildCspSnapshotPayload(licencePlate, provider, currency));
+      const response = await putCspConsumption(buildCspSnapshotPayload(licencePlate, provider, cspCurrency));
       expect(response.status).toBe(200);
 
       const snapshot = await response.json();
@@ -82,7 +84,7 @@ describe('Public Cloud accountability APIs', () => {
 
     it('sends pre-emptive notice (A0) when threshold met', async () => {
       const payload = {
-        ...buildCspSnapshotPayload(licencePlate, provider, currency),
+        ...buildCspSnapshotPayload(licencePlate, provider, cspCurrency),
         spendToDate: 1600,
         currentMonthForecast: 5000,
         consumptionPercentOfForecast: 32,
@@ -104,7 +106,7 @@ describe('Public Cloud accountability APIs', () => {
 
     it('does not duplicate pre-emptive notice in the same billing period', async () => {
       const payload = {
-        ...buildCspSnapshotPayload(licencePlate, provider, currency),
+        ...buildCspSnapshotPayload(licencePlate, provider, cspCurrency),
         spendToDate: 1700,
         currentMonthForecast: 5000,
         consumptionPercentOfForecast: 34,
@@ -120,7 +122,7 @@ describe('Public Cloud accountability APIs', () => {
     });
 
     it('records consumption alert and sends team email', async () => {
-      const response = await postCspAlert(buildCspAlertPayload(licencePlate, provider, 'MILESTONE', currency));
+      const response = await postCspAlert(buildCspAlertPayload(licencePlate, provider, 'MILESTONE', cspCurrency));
       expect(response.status).toBe(200);
 
       const alert = await response.json();
@@ -136,7 +138,7 @@ describe('Public Cloud accountability APIs', () => {
     });
 
     it('upserts consumption history', async () => {
-      const response = await putCspConsumptionHistory(buildCspHistoryPayload(licencePlate, provider, currency));
+      const response = await putCspConsumptionHistory(buildCspHistoryPayload(licencePlate, provider, cspCurrency));
       expect(response.status).toBe(200);
 
       const history = await response.json();
@@ -147,7 +149,7 @@ describe('Public Cloud accountability APIs', () => {
     it('rejects CSP ingest without service account', async () => {
       // A regular user session (not a service account) must not be able to ingest CSP data.
       await mockSessionByRole(GlobalRole.PublicReviewer);
-      const response = await putCspConsumption(buildCspSnapshotPayload(licencePlate, provider, currency));
+      const response = await putCspConsumption(buildCspSnapshotPayload(licencePlate, provider, cspCurrency));
       expect(response.status).toBe(401);
     });
   });
@@ -181,7 +183,7 @@ describe('Public Cloud accountability APIs', () => {
 
     it('creates, submits, and approves a forecast', async () => {
       const createRes = await createPublicCloudForecast(licencePlate, {
-        monthlyValues: buildForecastMonthlyValues(5000, currency, FISCAL_FORECAST_HORIZON_MONTHS),
+        monthlyValues: buildForecastMonthlyValues(5000, forecastCurrency, FISCAL_FORECAST_HORIZON_MONTHS),
         horizonMonths: FISCAL_FORECAST_HORIZON_MONTHS,
       });
       expect(createRes.status).toBe(200);
@@ -189,7 +191,7 @@ describe('Public Cloud accountability APIs', () => {
       const draft = await createRes.json();
       expect(draft.status).toBe(CloudCostForecastStatus.DRAFT);
 
-      const updatedValues = buildForecastMonthlyValues(6000, currency, FISCAL_FORECAST_HORIZON_MONTHS);
+      const updatedValues = buildForecastMonthlyValues(6000, forecastCurrency, FISCAL_FORECAST_HORIZON_MONTHS);
       const updateRes = await updatePublicCloudForecast(licencePlate, draft.id, {
         monthlyValues: updatedValues,
         horizonMonths: FISCAL_FORECAST_HORIZON_MONTHS,
@@ -225,7 +227,7 @@ describe('Public Cloud accountability APIs', () => {
 
     it('rejects a pending forecast with reason', async () => {
       const createRes = await createPublicCloudForecast(licencePlate, {
-        monthlyValues: buildForecastMonthlyValues(4500, currency, FISCAL_FORECAST_HORIZON_MONTHS),
+        monthlyValues: buildForecastMonthlyValues(4500, forecastCurrency, FISCAL_FORECAST_HORIZON_MONTHS),
         horizonMonths: FISCAL_FORECAST_HORIZON_MONTHS,
       });
       expect(createRes.status).toBe(200);
@@ -292,7 +294,7 @@ describe('Public Cloud accountability APIs', () => {
   });
 
   describe('Platform forecast dashboard (admin)', () => {
-    it('rolls up approved forecasts across the platform per currency', async () => {
+    it('rolls up approved forecasts across the platform in CAD', async () => {
       await mockSessionByRole(GlobalRole.BillingReviewer);
 
       const response = await getPublicCloudPlatformForecast();
@@ -302,7 +304,7 @@ describe('Public Cloud accountability APIs', () => {
       expect(summary.totalProducts).toBeGreaterThanOrEqual(1);
       expect(summary.productsWithForecast).toBeGreaterThanOrEqual(1);
 
-      const group = summary.groups.find((g: { currency: string }) => g.currency === currency);
+      const group = summary.groups.find((g: { currency: string }) => g.currency === forecastCurrency);
       expect(group).toBeTruthy();
       expect(group.forecastCount).toBeGreaterThanOrEqual(1);
 
@@ -321,11 +323,15 @@ describe('Public Cloud accountability APIs', () => {
           v.year === previousMonth.getFullYear() && v.month === previousMonth.getMonth() + 1,
       );
       if (previousMonthIndex >= 0) {
-        expect(group.monthlyActuals[previousMonthIndex]).toBe(4800);
+        const expectedActual =
+          cspCurrency === 'USD'
+            ? convertUsdToCad(4800, previousMonth.getFullYear(), previousMonth.getMonth() + 1)
+            : 4800;
+        expect(group.monthlyActuals[previousMonthIndex]).toBeCloseTo(expectedActual);
       }
     });
 
-    it('sums approved forecasts and actuals across multiple products per currency', async () => {
+    it('sums approved forecasts and actuals across multiple products in CAD', async () => {
       const secondForecastAmount = 4000;
       const secondActualAmount = 3200;
 
@@ -335,7 +341,11 @@ describe('Public Cloud accountability APIs', () => {
 
       await mockSessionByIdirGuid(projectOwnerIdirGuid);
       const createRes = await createPublicCloudForecast(secondProduct.licencePlate, {
-        monthlyValues: buildForecastMonthlyValues(secondForecastAmount, currency, FISCAL_FORECAST_HORIZON_MONTHS),
+        monthlyValues: buildForecastMonthlyValues(
+          secondForecastAmount,
+          forecastCurrency,
+          FISCAL_FORECAST_HORIZON_MONTHS,
+        ),
         horizonMonths: FISCAL_FORECAST_HORIZON_MONTHS,
       });
       expect(createRes.status).toBe(200);
@@ -360,7 +370,7 @@ describe('Public Cloud accountability APIs', () => {
               year: closedMonth.getFullYear(),
               month: closedMonth.getMonth() + 1,
             },
-            currency,
+            currency: cspCurrency,
             actualTotal: secondActualAmount,
             forecastTotal: secondForecastAmount,
             varianceAmount: secondActualAmount - secondForecastAmount,
@@ -375,7 +385,7 @@ describe('Public Cloud accountability APIs', () => {
       expect(response.status).toBe(200);
 
       const summary = await response.json();
-      const group = summary.groups.find((g: { currency: string }) => g.currency === currency);
+      const group = summary.groups.find((g: { currency: string }) => g.currency === forecastCurrency);
       expect(group).toBeTruthy();
       expect(group.productCount).toBe(2);
       expect(group.forecastCount).toBe(2);
@@ -393,8 +403,16 @@ describe('Public Cloud accountability APIs', () => {
           v.year === previousMonth.getFullYear() && v.month === previousMonth.getMonth() + 1,
       );
       if (previousMonthIndex >= 0) {
-        // First product history is 4800; second product history is 3200.
-        expect(group.monthlyActuals[previousMonthIndex]).toBe(4800 + secondActualAmount);
+        // First product history is 4800; second product history is 3200 (converted when CSP is USD).
+        const firstActual =
+          cspCurrency === 'USD'
+            ? convertUsdToCad(4800, previousMonth.getFullYear(), previousMonth.getMonth() + 1)
+            : 4800;
+        const secondActual =
+          cspCurrency === 'USD'
+            ? convertUsdToCad(secondActualAmount, previousMonth.getFullYear(), previousMonth.getMonth() + 1)
+            : secondActualAmount;
+        expect(group.monthlyActuals[previousMonthIndex]).toBeCloseTo(firstActual + secondActual);
       }
     });
 
