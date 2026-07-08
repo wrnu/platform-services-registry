@@ -34,16 +34,16 @@ export const DEMO_AZURE_PRODUCTS: DemoProductConfig[] = [
 export const DEMO_AWS_PRODUCTS: DemoProductConfig[] = [
   {
     licencePlate: 'f82c1a',
-    name: 'Cost Model Test 2 (AWS)',
-    provider: Provider.AWS,
-    description: 'Local seed AWS product for accountability and cost testing (USD).',
+    name: 'Cost Model Test 2 (AWS LZA)',
+    provider: Provider.AWS_LZA,
+    description: 'Local seed AWS LZA product for accountability and cost testing (USD).',
     budget: { dev: 8000, test: 6000, prod: 15000, tools: 3000 },
   },
   {
     licencePlate: 'b4e5f6',
-    name: 'Cost Model Test 4 (AWS)',
-    provider: Provider.AWS,
-    description: 'Second local seed AWS product to exercise multi-project forecast rollups.',
+    name: 'Cost Model Test 4 (AWS LZA)',
+    provider: Provider.AWS_LZA,
+    description: 'Second local seed AWS LZA product to exercise multi-project forecast rollups.',
     budget: { dev: 6000, test: 5000, prod: 10000, tools: 2000 },
   },
 ];
@@ -57,7 +57,7 @@ export const AZURE_DEMO_PLATE = DEMO_AZURE_PRODUCTS[0].licencePlate;
 /** @deprecated Use AWS_DEMO_PLATES[0] */
 export const AWS_DEMO_PLATE = DEMO_AWS_PRODUCTS[0].licencePlate;
 
-export function expectedMonthlyForecastRollup(provider: Provider.AZURE | Provider.AWS) {
+export function expectedMonthlyForecastRollup(provider: Provider.AZURE | Provider.AWS_LZA) {
   const products = provider === Provider.AZURE ? DEMO_AZURE_PRODUCTS : DEMO_AWS_PRODUCTS;
   return products.reduce((sum, product) => sum + monthlyBudgetTotal(product.budget), 0);
 }
@@ -76,6 +76,26 @@ async function seedDemoPublicCloudProduct(config: DemoProductConfig) {
   });
 
   if (existing) {
+    if (
+      existing.provider !== config.provider ||
+      existing.name !== config.name ||
+      existing.description !== config.description
+    ) {
+      const updated = await prisma.publicCloudProduct.update({
+        where: { id: existing.id },
+        data: {
+          provider: config.provider,
+          name: config.name,
+          description: config.description,
+          providerSelectionReasonsNote: `Local development seed product (${config.provider}).`,
+        },
+      });
+      console.log(
+        `  updated ${config.provider} product ${config.licencePlate} (${updated.name}) — provider/name synced`,
+      );
+      return updated;
+    }
+
     console.log(`  ${config.provider} product ${config.licencePlate} (${existing.name}) already exists — skipped`);
     return existing;
   }
@@ -163,9 +183,9 @@ export async function seedDemoPublicCloudProducts() {
   }
 
   const azureRollup = expectedMonthlyForecastRollup(Provider.AZURE);
-  const awsRollup = expectedMonthlyForecastRollup(Provider.AWS);
+  const awsRollup = expectedMonthlyForecastRollup(Provider.AWS_LZA);
   console.log(
-    `  expected monthly forecast rollups: Azure CA$${azureRollup.toLocaleString()}, AWS $${awsRollup.toLocaleString()}`,
+    `  expected monthly forecast rollups: Azure CA$${azureRollup.toLocaleString()}, AWS LZA $${awsRollup.toLocaleString()}`,
   );
 }
 

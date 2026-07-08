@@ -21,7 +21,7 @@ async function main() {
   console.log('1. Foundation (organizations, users, cost rules)...');
   await seedFoundation();
 
-  console.log('\n2. Demo public cloud products (2 Azure + 2 AWS)...');
+  console.log('\n2. Demo public cloud products (2 Azure + 2 AWS LZA)...');
   await seedDemoPublicCloudProducts();
 
   console.log('\n3. Accountability demo data (CSP, forecast, alerts)...');
@@ -42,7 +42,7 @@ async function main() {
   for (const plate of AZURE_DEMO_PLATES) {
     console.log(`  http://localhost:3000/public-cloud/products/${plate}/edit`);
   }
-  console.log('AWS products:');
+  console.log('AWS LZA products:');
   for (const plate of AWS_DEMO_PLATES) {
     console.log(`  http://localhost:3000/public-cloud/products/${plate}/edit`);
   }
@@ -50,7 +50,7 @@ async function main() {
   console.log(
     `Expected rollups: Azure CA$${expectedMonthlyForecastRollup(
       Provider.AZURE,
-    ).toLocaleString()}/mo, AWS $${expectedMonthlyForecastRollup(Provider.AWS).toLocaleString()}/mo`,
+    ).toLocaleString()}/mo, AWS LZA $${expectedMonthlyForecastRollup(Provider.AWS_LZA).toLocaleString()}/mo`,
   );
 }
 
