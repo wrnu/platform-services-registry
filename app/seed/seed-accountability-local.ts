@@ -5,7 +5,7 @@
  * Default licence plate: e71b0e (Cost Model Test 1)
  */
 import {
-  buildFiscalForecastMonths,
+  buildRollingFiscalForecastMonths,
   FISCAL_FORECAST_HORIZON_MONTHS,
 } from '../components/public-cloud/accountability/forecast-grid-utils';
 import prisma from '../core/prisma';
@@ -129,8 +129,7 @@ function buildMonthlyValues(
   horizonMonths = FISCAL_FORECAST_HORIZON_MONTHS,
 ) {
   const currency = product.provider === Provider.AZURE ? 'CAD' : 'USD';
-  const fiscalYears = Math.ceil(horizonMonths / 12);
-  return buildFiscalForecastMonths(fiscalYears, monthlyAmount, currency);
+  return buildRollingFiscalForecastMonths(monthlyAmount, currency, new Date(), horizonMonths);
 }
 
 function printWalkthrough(licencePlate: string) {

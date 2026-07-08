@@ -1,10 +1,9 @@
 import {
   applyAmountToFutureMonths,
-  applyPercentGrowthToEditableMonths,
   buildFiscalForecastMonths,
+  buildRollingFiscalForecastMonths,
   copyAmountAcrossEditableMonths,
   FISCAL_FORECAST_HORIZON_MONTHS,
-  FISCAL_FORECAST_YEARS,
   formatFiscalYearLabel,
   formatPercentChange,
   getAdjacentFiscalYearPercentChange,
@@ -14,6 +13,7 @@ import {
   getForecastIncreases,
   getProviderSpendLabel,
   isForecastHorizonComplete,
+  isPartialFiscalYearChunk,
   mergeMonthlyValuesOntoFiscalHorizon,
   preserveLockedPastMonthlyValues,
   type ForecastCellStatus,
@@ -33,8 +33,7 @@ describe('fiscal year helpers', () => {
     expect(getFiscalYearStartYear(new Date(2026, 3, 1))).toBe(2026);
   });
 
-  it('defaults to a 24-month (2 FY) horizon', () => {
-    expect(FISCAL_FORECAST_YEARS).toBe(2);
+  it('defaults to a rolling 24-month horizon', () => {
     expect(FISCAL_FORECAST_HORIZON_MONTHS).toBe(24);
   });
 
@@ -46,24 +45,44 @@ describe('fiscal year helpers', () => {
     expect(months[12]).toMatchObject({ year: 2027, month: 4 });
   });
 
-  it('chunks months by fiscal year with labels', () => {
-    const months = buildFiscalForecastMonths(2, 1000, 'CAD', june2026);
-    const chunks = getFiscalYearChunks(months);
-    expect(chunks.length).toBe(2);
-    expect(chunks[0].label).toBe('FY26/27');
-    expect(chunks[1].label).toBe('FY27/28');
-    expect(chunks[0].months.length).toBe(12);
+  it('builds a rolling grid covering 24 months from the current month', () => {
+    // June 2026: Apr '26 – May '28 (2 past months + 24 rolling months = 26 slots).
+    const months = buildRollingFiscalForecastMonths(1000, 'CAD', june2026);
+    expect(months.length).toBe(26);
+    expect(months[0]).toMatchObject({ year: 2026, month: 4 });
+    expect(months[months.length - 1]).toMatchObject({ year: 2028, month: 5 });
   });
 
-  it('merges existing values onto fiscal horizon', () => {
+  it('rolling grid spans exactly 2 fiscal years when at the start of a fiscal year', () => {
+    const april2026 = new Date(2026, 3, 1);
+    const months = buildRollingFiscalForecastMonths(1000, 'CAD', april2026);
+    expect(months.length).toBe(24);
+    expect(months[0]).toMatchObject({ year: 2026, month: 4 });
+    expect(months[months.length - 1]).toMatchObject({ year: 2028, month: 3 });
+  });
+
+  it('chunks the rolling grid into fiscal years with a partial third year', () => {
+    const months = buildRollingFiscalForecastMonths(1000, 'CAD', june2026);
+    const chunks = getFiscalYearChunks(months);
+    expect(chunks.length).toBe(3);
+    expect(chunks.map((c) => c.label)).toEqual(['FY26/27', 'FY27/28', 'FY28/29']);
+    expect(chunks[0].months.length).toBe(12);
+    expect(chunks[1].months.length).toBe(12);
+    expect(chunks[2].months.length).toBe(2);
+    expect(isPartialFiscalYearChunk(chunks[0])).toBe(false);
+    expect(isPartialFiscalYearChunk(chunks[2])).toBe(true);
+  });
+
+  it('merges existing values onto the rolling fiscal horizon', () => {
     const existing: MonthlyValue[] = [
       { year: 2026, month: 6, amount: 5000, currency: 'CAD' },
       { year: 2026, month: 7, amount: 5500, currency: 'CAD' },
     ];
-    const merged = mergeMonthlyValuesOntoFiscalHorizon(existing, 2, 'CAD', june2026);
-    expect(merged.length).toBe(24);
-    expect(merged.find((m) => m.month === 6)?.amount).toBe(5000);
-    expect(merged.find((m) => m.month === 5)?.amount).toBe(0);
+    const merged = mergeMonthlyValuesOntoFiscalHorizon(existing, 'CAD', june2026);
+    expect(merged.length).toBe(26);
+    expect(merged.find((m) => m.year === 2026 && m.month === 6)?.amount).toBe(5000);
+    expect(merged.find((m) => m.year === 2026 && m.month === 5)?.amount).toBe(0);
+    expect(merged[merged.length - 1]).toMatchObject({ year: 2028, month: 5, amount: 0 });
   });
 });
 
@@ -73,19 +92,6 @@ const baseValues: MonthlyValue[] = [
   { year: 2026, month: 3, amount: 1000, currency: 'CAD' },
   { year: 2026, month: 4, amount: 1000, currency: 'CAD' },
 ];
-
-describe('applyPercentGrowthToEditableMonths', () => {
-  it('applies compound growth across editable months', () => {
-    const statuses: ForecastCellStatus[] = ['confirmed', 'suggested', 'suggested', 'needsReview'];
-
-    const result = applyPercentGrowthToEditableMonths(baseValues, statuses, 10);
-
-    expect(result[0].amount).toBe(1000);
-    expect(result[1].amount).toBe(1100);
-    expect(result[2].amount).toBe(1210);
-    expect(result[3].amount).toBe(1331);
-  });
-});
 
 describe('copyAmountAcrossEditableMonths', () => {
   it('copies source amount to editable months only', () => {
@@ -110,7 +116,7 @@ describe('applyAmountToFutureMonths', () => {
 describe('getCellStatuses', () => {
   const june2026 = new Date(2026, 5, 15);
 
-  it('locks past months even when quarterly review is due for the current quarter', () => {
+  it('locks past months and requires review for the full current/future horizon', () => {
     const values = buildFiscalForecastMonths(2, 1000, 'CAD', june2026);
     const statuses = getCellStatuses(values, {
       quarterlyReview: { poSignedOff: false, status: 'IN_PROGRESS' },
@@ -123,10 +129,33 @@ describe('getCellStatuses', () => {
     const aprilIndex = values.findIndex((v) => v.month === 4 && v.year === 2026);
     const mayIndex = values.findIndex((v) => v.month === 5 && v.year === 2026);
     const juneIndex = values.findIndex((v) => v.month === 6 && v.year === 2026);
+    const julyIndex = values.findIndex((v) => v.month === 7 && v.year === 2026);
+    const nextFyIndex = values.findIndex((v) => v.month === 4 && v.year === 2027);
 
     expect(statuses[aprilIndex]).toBe('past');
     expect(statuses[mayIndex]).toBe('past');
     expect(statuses[juneIndex]).toBe('needsReview');
+    expect(statuses[julyIndex]).toBe('needsReview');
+    expect(statuses[nextFyIndex]).toBe('needsReview');
+  });
+
+  it('stops highlighting the full horizon once the forecast review is saved', () => {
+    const values = buildFiscalForecastMonths(2, 1000, 'CAD', june2026);
+    const statuses = getCellStatuses(values, {
+      quarterlyReview: { poSignedOff: false, forecastMonthsReviewed: true, status: 'IN_PROGRESS' },
+      activeBaseline: null,
+      confirmedKeys: new Set(),
+      editable: true,
+      now: june2026,
+    });
+
+    const juneIndex = values.findIndex((v) => v.month === 6 && v.year === 2026);
+    const julyIndex = values.findIndex((v) => v.month === 7 && v.year === 2026);
+    const nextFyIndex = values.findIndex((v) => v.month === 4 && v.year === 2027);
+
+    expect(statuses[juneIndex]).toBe('suggested');
+    expect(statuses[julyIndex]).toBe('suggested');
+    expect(statuses[nextFyIndex]).toBe('suggested');
   });
 });
 
@@ -160,6 +189,14 @@ describe('getAdjacentFiscalYearPercentChange', () => {
     expect(getAdjacentFiscalYearPercentChange(chunks, 0)).toBeNull();
     expect(getAdjacentFiscalYearPercentChange(chunks, 1)).toBeCloseTo(20);
   });
+
+  it('skips comparison against a partial fiscal year', () => {
+    const months = buildRollingFiscalForecastMonths(1000, 'CAD', june2026);
+    const chunks = getFiscalYearChunks(months);
+
+    expect(chunks.length).toBe(3);
+    expect(getAdjacentFiscalYearPercentChange(chunks, 2)).toBeNull();
+  });
 });
 
 describe('getForecastIncreases', () => {
@@ -181,13 +218,26 @@ describe('getForecastIncreases', () => {
 describe('isForecastHorizonComplete', () => {
   const june2026 = new Date(2026, 5, 15);
 
-  it('requires non-zero amounts for current and future months', () => {
-    const values = buildFiscalForecastMonths(2, 1000, 'CAD', june2026);
-    expect(isForecastHorizonComplete(values)).toBe(true);
+  it('requires non-zero amounts for every month in the rolling window', () => {
+    const values = buildRollingFiscalForecastMonths(1000, 'CAD', june2026);
+    expect(isForecastHorizonComplete(values, FISCAL_FORECAST_HORIZON_MONTHS, june2026)).toBe(true);
 
     const julyIndex = values.findIndex((v) => v.month === 7 && v.year === 2026);
     values[julyIndex].amount = 0;
-    expect(isForecastHorizonComplete(values)).toBe(false);
+    expect(isForecastHorizonComplete(values, FISCAL_FORECAST_HORIZON_MONTHS, june2026)).toBe(false);
+  });
+
+  it('is incomplete when the forecast does not extend to the end of the rolling window', () => {
+    // Two full fiscal years from April cover only 22 rolling months as of June.
+    const values = buildFiscalForecastMonths(2, 1000, 'CAD', june2026);
+    expect(isForecastHorizonComplete(values, FISCAL_FORECAST_HORIZON_MONTHS, june2026)).toBe(false);
+  });
+
+  it('ignores empty past months', () => {
+    const values = buildRollingFiscalForecastMonths(1000, 'CAD', june2026);
+    const aprilIndex = values.findIndex((v) => v.month === 4 && v.year === 2026);
+    values[aprilIndex].amount = 0;
+    expect(isForecastHorizonComplete(values, FISCAL_FORECAST_HORIZON_MONTHS, june2026)).toBe(true);
   });
 });
 

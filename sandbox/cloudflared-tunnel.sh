@@ -92,7 +92,11 @@ start_tunnel() {
     : >"$log"
     local metrics_port=$((20000 + port))
     cloudflared tunnel --url "http://localhost:${port}" --metrics "127.0.0.1:${metrics_port}" >>"$log" 2>&1 &
-    echo $! >"$pid_file"
+    local pid=$!
+    echo "$pid" >"$pid_file"
+    if [[ ${TUNNEL_DETACHED:-} == true ]]; then
+        disown "$pid" 2>/dev/null || true
+    fi
     wait_for_tunnel_url "$log"
 }
 
@@ -116,18 +120,23 @@ cmd_start() {
     echo "Starting app tunnel (localhost:${APP_PORT})..."
     APP_URL=$(start_tunnel "$APP_PORT" app)
 
+    # Quick tunnels terminate TLS at Cloudflare but forward to localhost as HTTP, so Keycloak
+    # OIDC discovery advertises http:// issuers. NextAuth must use the same scheme or token
+    # validation fails with an issuer mismatch.
+    KEYCLOAK_AUTH_URL="${KEYCLOAK_URL/https:\/\//http:\/\/}"
+
     set_env_var BASE_URL "$APP_URL"
     set_env_var NEXTAUTH_URL "$APP_URL"
     # next.config.js reads BASE_URL for allowedDevOrigins (tunnel hostname)
-    set_env_var AUTH_BASE_URL "$KEYCLOAK_URL"
-    set_env_var AUTH_SERVER_URL "$KEYCLOAK_URL"
-    set_env_var AWS_ROLES_BASE_URL "$KEYCLOAK_URL"
-    set_env_var CHES_TOKEN_URL "${KEYCLOAK_URL}/realms/platform-services/protocol/openid-connect/token"
+    set_env_var AUTH_BASE_URL "$KEYCLOAK_AUTH_URL"
+    set_env_var AUTH_SERVER_URL "$KEYCLOAK_AUTH_URL"
+    set_env_var AWS_ROLES_BASE_URL "$KEYCLOAK_AUTH_URL"
+    set_env_var CHES_TOKEN_URL "${KEYCLOAK_AUTH_URL}/realms/platform-services/protocol/openid-connect/token"
 
     if grep -q '^MS_GRAPH_API_TOKEN_ENDPOINT=' "$APP_ENV_FILE"; then
-        if grep '^MS_GRAPH_API_TOKEN_ENDPOINT=' "$APP_ENV_FILE" | grep -qE 'localhost:(8443|8080)'; then
+        if grep '^MS_GRAPH_API_TOKEN_ENDPOINT=' "$APP_ENV_FILE" | grep -qE 'localhost:(8443|8080)|trycloudflare\.com'; then
             set_env_var MS_GRAPH_API_TOKEN_ENDPOINT \
-                "${KEYCLOAK_URL}/realms/platform-services/protocol/openid-connect/token"
+                "${KEYCLOAK_AUTH_URL}/realms/platform-services/protocol/openid-connect/token"
         fi
     fi
 

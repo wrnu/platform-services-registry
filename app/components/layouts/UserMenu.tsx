@@ -137,7 +137,7 @@ export default function UserMenu() {
       permission: 'viewPublicCloudAccountability',
     },
     {
-      text: 'Accountability — Audit',
+      text: 'Public Cloud Notifications',
       Icon: IconSignLeft,
       href: '/public-cloud/accountability/audit',
       permission: 'viewPublicCloudAccountability',

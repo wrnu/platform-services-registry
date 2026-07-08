@@ -1,17 +1,15 @@
 'use client';
 
-import { Alert, Button, Modal, NumberInput, Popover, Radio, TextInput, Textarea } from '@mantine/core';
-import { IconCheck, IconPencil } from '@tabler/icons-react';
+import { Alert, Button, Modal, NumberInput, Radio, Textarea } from '@mantine/core';
+import { IconCheck } from '@tabler/icons-react';
 import { useMutation } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { updatePublicCloudForecast } from '@/services/backend/public-cloud/accountability';
 import {
   applyAmountToFutureMonths,
-  applyPercentGrowthToEditableMonths,
   copyAmountAcrossEditableMonths,
   countCellsAwaitingForecast,
   FISCAL_FORECAST_HORIZON_MONTHS,
-  FISCAL_FORECAST_YEARS,
   formatForecastAmount,
   formatPercentChange,
   getAdjacentFiscalYearPercentChange,
@@ -22,6 +20,7 @@ import {
   getProviderSpendLabel,
   getReviewWindowStartIndex,
   isInProgressFiscalYear,
+  isPartialFiscalYearChunk,
   isPastMonth,
   mergeMonthlyValuesOntoFiscalHorizon,
   monthKey,
@@ -36,6 +35,7 @@ import {
 
 type QuarterlyReview = {
   poSignedOff: boolean;
+  forecastMonthsReviewed?: boolean;
   status?: string;
 };
 
@@ -72,13 +72,14 @@ function CellEditor({
 
   if (status === 'past') {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[2.25rem]">
+      <div className="flex flex-col items-center justify-center min-h-9">
         <span className="font-medium text-sm text-gray-400">{formatForecastAmount(value, currency)}</span>
       </div>
     );
   }
 
-  const canEdit = editable && status !== 'confirmed';
+  // Confirmed future months stay editable so teams can update projections when plans change.
+  const canEdit = editable;
 
   if (canEdit) {
     return (
@@ -115,7 +116,7 @@ function CellEditor({
   }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[2.25rem]">
+    <div className="flex flex-col items-center justify-center min-h-9">
       <span className={`font-medium text-sm ${status === 'suggested' ? 'text-gray-400' : 'text-gray-900'}`}>
         {formatForecastAmount(value, currency)}
       </span>
@@ -140,6 +141,8 @@ export default function ProjectBudgetForecastPanel({
   editable,
   provider,
   onSaved,
+  onForecastReviewed,
+  forecastReviewSaving,
 }: {
   licencePlate: string;
   forecast: ForecastMeta;
@@ -150,6 +153,8 @@ export default function ProjectBudgetForecastPanel({
   editable: boolean;
   provider?: string;
   onSaved: () => void;
+  onForecastReviewed?: () => void;
+  forecastReviewSaving?: boolean;
 }) {
   const currency = monthlyValues[0]?.currency ?? 'CAD';
   const spendLabel = getProviderSpendLabel(provider);
@@ -160,13 +165,12 @@ export default function ProjectBudgetForecastPanel({
   const hasActuals = monthlyActuals.length > 0;
 
   const baselineValues = useMemo(
-    () => mergeMonthlyValuesOntoFiscalHorizon(monthlyValues, FISCAL_FORECAST_YEARS, currency),
+    () => mergeMonthlyValuesOntoFiscalHorizon(monthlyValues, currency),
     [monthlyValues, currency],
   );
 
   const baselineActive = useMemo(
-    () =>
-      activeBaseline ? mergeMonthlyValuesOntoFiscalHorizon(activeBaseline, FISCAL_FORECAST_YEARS, currency) : null,
+    () => (activeBaseline ? mergeMonthlyValuesOntoFiscalHorizon(activeBaseline, currency) : null),
     [activeBaseline, currency],
   );
 
@@ -174,8 +178,6 @@ export default function ProjectBudgetForecastPanel({
   const [confirmedKeys, setConfirmedKeys] = useState<Set<string>>(() =>
     getInitialConfirmedKeys(baselineValues, baselineActive, quarterlyReview),
   );
-  const [reviewBannerDismissed, setReviewBannerDismissed] = useState(false);
-  const [growthPercent, setGrowthPercent] = useState('5');
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [pendingIncreases, setPendingIncreases] = useState<ForecastIncrease[]>([]);
   const [changeJustification, setChangeJustification] = useState('');
@@ -200,19 +202,34 @@ export default function ProjectBudgetForecastPanel({
   );
 
   const awaitingCount = countCellsAwaitingForecast(cellStatuses);
+  const currentFutureCount = cellStatuses.filter((status) => status !== 'past').length;
+  const confirmedCurrentFutureCount = currentFutureCount - awaitingCount;
   const isDirty = JSON.stringify(values) !== JSON.stringify(baselineValues);
   const fiscalYearChunks = getFiscalYearChunks(values);
   const grandTotal = sumMonthlyValues(values);
   const savedGrandTotal = sumMonthlyValues(comparisonBaseline);
   const grandTotalChange = savedGrandTotal > 0 ? ((grandTotal - savedGrandTotal) / savedGrandTotal) * 100 : null;
 
-  const reviewStart = getReviewWindowStartIndex(values);
   const quarterKeys = new Set(
     values.filter((_, i) => cellStatuses[i] === 'needsReview').map((v) => monthKey(v.year, v.month)),
   );
   const reviewMonthLabels = values
     .filter((v) => quarterKeys.has(monthKey(v.year, v.month)))
     .map((v) => shortMonthLabel(v.year, v.month));
+  const reviewMonthRange =
+    reviewMonthLabels.length > 1
+      ? `${reviewMonthLabels[0]} through ${reviewMonthLabels[reviewMonthLabels.length - 1]}`
+      : reviewMonthLabels[0];
+  const currentFutureValues = values.filter((v) => !isPastMonth(v.year, v.month));
+  const currentFutureRange =
+    currentFutureValues.length > 1
+      ? `${shortMonthLabel(currentFutureValues[0].year, currentFutureValues[0].month)} through ${shortMonthLabel(
+          currentFutureValues[currentFutureValues.length - 1].year,
+          currentFutureValues[currentFutureValues.length - 1].month,
+        )}`
+      : currentFutureValues[0]
+        ? shortMonthLabel(currentFutureValues[0].year, currentFutureValues[0].month)
+        : yearRangeLabel(values);
 
   const performSave = (justification?: string, nature?: 'ONE_TIME' | 'ONGOING') => {
     const lockedValues = preserveLockedPastMonthlyValues(baselineValues, values);
@@ -272,14 +289,6 @@ export default function ProjectBudgetForecastPanel({
     [quarterlyReview, baselineActive, confirmedKeys, editable],
   );
 
-  const applyGrowth = () => {
-    const pct = Number(growthPercent) || 0;
-    setValues((prev) => {
-      const statuses = getCellStatuses(prev, cellStatusOptions);
-      return applyPercentGrowthToEditableMonths(prev, statuses, pct);
-    });
-  };
-
   const copyAcrossSuggested = () => {
     setValues((prev) => {
       const statuses = getCellStatuses(prev, cellStatusOptions);
@@ -312,12 +321,17 @@ export default function ProjectBudgetForecastPanel({
     });
   };
 
-  const showReviewBanner =
-    editable &&
-    !reviewBannerDismissed &&
-    quarterlyReview &&
-    !quarterlyReview.poSignedOff &&
-    reviewMonthLabels.length > 0;
+  const showForecastReviewAction = editable && quarterlyReview && !quarterlyReview.poSignedOff;
+  const canUseForecastReviewAction = !isDirty && Boolean(onForecastReviewed);
+  const forecastReviewProgress =
+    currentFutureCount > 0 ? Math.round((confirmedCurrentFutureCount / currentFutureCount) * 100) : 0;
+  const handleForecastReviewAction = () => {
+    if (!canUseForecastReviewAction) return;
+    if (awaitingCount > 0) {
+      confirmAllSuggested();
+    }
+    onForecastReviewed?.();
+  };
 
   return (
     <div className="space-y-4">
@@ -328,54 +342,68 @@ export default function ProjectBudgetForecastPanel({
           Fiscal years run April–March.
         </p>
         <p>
-          Rolling {FISCAL_FORECAST_HORIZON_MONTHS}-month forecast ({yearRangeLabel(values)}).
+          Rolling {FISCAL_FORECAST_HORIZON_MONTHS}-month forecast ({yearRangeLabel(values)}). Past months of the current
+          fiscal year are locked and shown for reference; all upcoming months stay editable.
         </p>
       </div>
 
-      {showReviewBanner && (
+      {showForecastReviewAction && (
         <Alert
-          color="red"
+          color={quarterlyReview.forecastMonthsReviewed ? 'green' : 'blue'}
           variant="light"
-          withCloseButton
-          onClose={() => setReviewBannerDismissed(true)}
-          title="Quarterly review required"
+          title={quarterlyReview.forecastMonthsReviewed ? 'Forecast review saved' : 'Quarterly forecast review'}
         >
-          <span className="text-sm">
-            {reviewMonthLabels.length} months need your forecast. Your team must confirm estimates for the next quarter
-            each rolling period. Cells highlighted below require input:{' '}
-            <span className="font-medium">{reviewMonthLabels.join(', ')}</span>.
-          </span>
+          <div className="space-y-3 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span>
+                {quarterlyReview.forecastMonthsReviewed
+                  ? 'Full rolling forecast confirmed for this quarter. PO sign-off is still required.'
+                  : isDirty
+                    ? 'Save forecast changes before completing this review step.'
+                    : `Review ${
+                        reviewMonthRange ?? currentFutureRange
+                      }, then confirm the full rolling ${FISCAL_FORECAST_HORIZON_MONTHS}-month forecast.`}
+              </span>
+              {!quarterlyReview.forecastMonthsReviewed && (
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="light"
+                  loading={forecastReviewSaving}
+                  disabled={!canUseForecastReviewAction}
+                  onClick={handleForecastReviewAction}
+                >
+                  {isDirty
+                    ? 'Save forecast first'
+                    : awaitingCount > 0
+                      ? `Confirm ${currentFutureCount} months and mark reviewed`
+                      : 'Mark forecast reviewed'}
+                </Button>
+              )}
+            </div>
+            {!quarterlyReview.forecastMonthsReviewed && (
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs text-blue-900">
+                  <span>
+                    {confirmedCurrentFutureCount} / {currentFutureCount} months confirmed
+                  </span>
+                  <span>Save changes → confirm forecast → PO sign-off</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-blue-100 overflow-hidden">
+                  <div className="h-full rounded-full bg-blue-500" style={{ width: `${forecastReviewProgress}%` }} />
+                </div>
+              </div>
+            )}
+          </div>
         </Alert>
       )}
 
       {editable && (
         <div className="flex flex-wrap items-center justify-between gap-3 border border-gray-200 rounded-md px-3 py-2 bg-white">
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="text-gray-500 font-medium">Bulk fill:</span>
-            <Popover width={200} position="bottom-start">
-              <Popover.Target>
-                <Button type="button" size="compact-sm" variant="default">
-                  Apply % growth
-                </Button>
-              </Popover.Target>
-              <Popover.Dropdown>
-                <div className="space-y-2">
-                  <TextInput
-                    label="Growth %"
-                    value={growthPercent}
-                    onChange={(e) => setGrowthPercent(e.currentTarget.value)}
-                  />
-                  <Button type="button" size="xs" onClick={applyGrowth}>
-                    Apply to editable months
-                  </Button>
-                </div>
-              </Popover.Dropdown>
-            </Popover>
+            <span className="text-gray-500 font-medium">Forecast tools:</span>
             <Button type="button" size="compact-sm" variant="default" onClick={copyAcrossSuggested}>
               Copy value across range
-            </Button>
-            <Button type="button" size="compact-sm" variant="default" onClick={confirmAllSuggested}>
-              Confirm all suggested
             </Button>
           </div>
           <div className="flex flex-wrap gap-3 text-xs text-gray-600">
@@ -402,6 +430,11 @@ export default function ProjectBudgetForecastPanel({
             <div key={fyChunk.label} className="border border-gray-200 rounded-lg overflow-hidden bg-white">
               <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 text-sm font-semibold text-gray-700">
                 {fyChunk.label} <span className="font-normal text-gray-500">({yearRangeLabel(fyChunk.months)})</span>
+                {isPartialFiscalYearChunk(fyChunk) && (
+                  <span className="ml-2 font-normal text-xs text-gray-500">
+                    partial year — end of the rolling {FISCAL_FORECAST_HORIZON_MONTHS}-month window
+                  </span>
+                )}
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[720px] text-sm">
@@ -439,11 +472,6 @@ export default function ProjectBudgetForecastPanel({
 
                         return (
                           <td key={monthKey(v.year, v.month)} className={`px-1 py-1 ${cellClass} relative`}>
-                            {status === 'needsReview' && (
-                              <div className="flex items-center justify-center gap-0.5 text-[10px] font-bold text-orange-700 mb-0.5">
-                                <IconPencil size={10} /> REVIEW
-                              </div>
-                            )}
                             {status === 'confirmed' && editable && (
                               <div className="flex justify-center mb-0.5">
                                 <IconCheck size={14} className="text-green-600" />
@@ -524,6 +552,8 @@ export default function ProjectBudgetForecastPanel({
             );
           }
 
+          const isPartial = isPartialFiscalYearChunk(fyChunk);
+
           return (
             <div key={fyChunk.label} className="rounded-lg border border-gray-200 p-4 bg-white">
               <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{fyChunk.label} total</div>
@@ -531,6 +561,11 @@ export default function ProjectBudgetForecastPanel({
               {yoy != null ? (
                 <div className={`text-sm mt-1 ${yoy > 0 ? 'text-red-600' : 'text-green-600'}`}>
                   {formatPercentChange(yoy)} vs prior fiscal year
+                </div>
+              ) : isPartial ? (
+                <div className="text-sm text-gray-500 mt-1">
+                  First {fyChunk.months.length} month{fyChunk.months.length === 1 ? '' : 's'} of the fiscal year
+                  (rolling window)
                 </div>
               ) : (
                 <div className="text-sm text-gray-500 mt-1">First fiscal year in forecast</div>

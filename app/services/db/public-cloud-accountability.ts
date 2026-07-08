@@ -1,6 +1,5 @@
 import {
-  buildFiscalForecastMonths,
-  FISCAL_FORECAST_YEARS,
+  buildRollingFiscalForecastMonths,
   mergeMonthlyValuesOntoFiscalHorizon,
   monthKey,
   preserveLockedPastMonthlyValues,
@@ -136,11 +135,7 @@ export async function getPlatformForecastSummary() {
     groups: [...groups.values()]
       .sort((a, b) => a.currency.localeCompare(b.currency))
       .map((group) => {
-        const monthlyTotals = mergeMonthlyValuesOntoFiscalHorizon(
-          [...group.totalsByMonth.values()],
-          FISCAL_FORECAST_YEARS,
-          group.currency,
-        );
+        const monthlyTotals = mergeMonthlyValuesOntoFiscalHorizon([...group.totalsByMonth.values()], group.currency);
         // Aligned with monthlyTotals; null for months without closed-month actuals.
         const monthlyActuals = monthlyTotals.map(
           (slot) => group.actualsByMonth.get(monthKey(slot.year, slot.month)) ?? null,
@@ -803,7 +798,31 @@ export function seedForecastFromProductBudget(
   if (environmentsEnabled.tools) total += budget.tools;
 
   const now = new Date();
-  return buildFiscalForecastMonths(FISCAL_FORECAST_YEARS, total, currency, now);
+  return buildRollingFiscalForecastMonths(total, currency, now);
+}
+
+/**
+ * Seed values for a new forecast draft: reuse the active approved forecast
+ * (merged onto the current rolling horizon) when one exists, otherwise fall
+ * back to the product budget estimates.
+ */
+export async function seedForecastDraftValues(product: {
+  licencePlate: string;
+  provider: Provider;
+  budget: { dev: number; test: number; prod: number; tools: number };
+  environmentsEnabled: {
+    development: boolean;
+    test: boolean;
+    production: boolean;
+    tools: boolean;
+  };
+}) {
+  const activeForecast = await getActiveApprovedForecast(product.licencePlate);
+  if (activeForecast) {
+    const currency = PROVIDER_FORECAST_CURRENCY[product.provider];
+    return mergeMonthlyValuesOntoFiscalHorizon(activeForecast.monthlyValues as MonthlyValue[], currency);
+  }
+  return seedForecastFromProductBudget(product.provider, product.budget, product.environmentsEnabled);
 }
 
 export type PublicCloudAccountabilitySearchRow = {

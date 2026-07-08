@@ -35,9 +35,9 @@ export default auditPage(() => {
     <LoadingBox isLoading={isLoading}>
       <div className="space-y-4 p-4">
         <div>
-          <h1 className="text-2xl font-bold">Accountability notification audit</h1>
+          <h1 className="text-2xl font-bold">Notification log</h1>
           <p className="text-sm text-gray-600 mt-1">
-            CHES sends for public cloud accountability workflows (Story 7.5).
+            Email notifications sent for forecast reviews, spend alerts, and quarterly accountability.
           </p>
         </div>
 

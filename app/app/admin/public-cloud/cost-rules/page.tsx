@@ -101,7 +101,7 @@ export default CostRulesPage(({ session }) => {
     <LoadingBox isLoading={isLoading}>
       <div className="space-y-8 p-4 max-w-4xl">
         <div>
-          <h1 className="text-2xl font-bold">Public Cloud cost rules</h1>
+          <h1 className="text-2xl font-bold">Public Cloud Cost Rules</h1>
           {data?.active && (
             <div className="text-sm text-gray-600 mt-1 flex items-center gap-2">
               Active version <Badge size="sm">v{data.active.version}</Badge>

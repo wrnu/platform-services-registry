@@ -28,4 +28,5 @@ mnt
 tmp
 site
 sandbox/.tunnel
+.pi/
 app/prisma/client

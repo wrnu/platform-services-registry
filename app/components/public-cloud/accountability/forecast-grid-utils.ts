@@ -7,9 +7,8 @@ export type MonthlyValue = {
 
 export type ForecastCellStatus = 'confirmed' | 'needsReview' | 'suggested' | 'past';
 
-/** Current fiscal year plus one future fiscal year (April–March). */
-export const FISCAL_FORECAST_YEARS = 2;
-export const FISCAL_FORECAST_HORIZON_MONTHS = FISCAL_FORECAST_YEARS * 12;
+/** Rolling forecast horizon: the current month plus 23 future months. */
+export const FISCAL_FORECAST_HORIZON_MONTHS = 24;
 
 const FISCAL_YEAR_START_MONTH = 4;
 
@@ -82,13 +81,45 @@ export function buildFiscalForecastMonths(
   return monthlyValues;
 }
 
+/**
+ * Grid months for the rolling forecast: from the start of the current fiscal
+ * year (April) through the current month + (horizonMonths - 1), so the grid
+ * always contains exactly `horizonMonths` current/future months. Whenever the
+ * window extends past the next fiscal year this produces a partial third
+ * fiscal-year chunk.
+ */
+export function buildRollingFiscalForecastMonths(
+  monthlyAmount: number,
+  currency: string,
+  now = new Date(),
+  horizonMonths = FISCAL_FORECAST_HORIZON_MONTHS,
+): MonthlyValue[] {
+  const fiscalStartYear = getFiscalYearStartYear(now);
+  const startDate = new Date(fiscalStartYear, FISCAL_YEAR_START_MONTH - 1, 1);
+  const endDate = new Date(now.getFullYear(), now.getMonth() + horizonMonths - 1, 1);
+  const monthCount =
+    (endDate.getFullYear() - startDate.getFullYear()) * 12 + (endDate.getMonth() - startDate.getMonth()) + 1;
+
+  const monthlyValues: MonthlyValue[] = [];
+  for (let i = 0; i < monthCount; i++) {
+    const d = new Date(startDate.getFullYear(), startDate.getMonth() + i, 1);
+    monthlyValues.push({
+      year: d.getFullYear(),
+      month: d.getMonth() + 1,
+      amount: monthlyAmount,
+      currency,
+    });
+  }
+
+  return monthlyValues;
+}
+
 export function mergeMonthlyValuesOntoFiscalHorizon(
   existing: MonthlyValue[],
-  horizonFiscalYears = FISCAL_FORECAST_YEARS,
   currency = 'CAD',
   now = new Date(),
 ): MonthlyValue[] {
-  const template = buildFiscalForecastMonths(horizonFiscalYears, 0, currency, now);
+  const template = buildRollingFiscalForecastMonths(0, currency, now);
   const byKey = new Map(existing.map((v) => [monthKey(v.year, v.month), v]));
 
   return template.map((slot) => {
@@ -157,6 +188,7 @@ export function chunkByYear(values: MonthlyValue[], monthsPerYear = 12) {
 
 type QuarterlyReviewHint = {
   poSignedOff: boolean;
+  forecastMonthsReviewed?: boolean;
   status?: string;
 } | null;
 
@@ -194,9 +226,11 @@ export function getCellStatuses(
 ): ForecastCellStatus[] {
   const { quarterlyReview, confirmedKeys, editable, now = new Date() } = options;
   const reviewDue =
-    editable && quarterlyReview && !quarterlyReview.poSignedOff && quarterlyReview.status !== 'COMPLETE';
-
-  const quarterKeys = reviewDue ? new Set(getCurrentQuarterMonthKeys(now)) : new Set<string>();
+    editable &&
+    quarterlyReview &&
+    !quarterlyReview.poSignedOff &&
+    !quarterlyReview.forecastMonthsReviewed &&
+    quarterlyReview.status !== 'COMPLETE';
 
   return values.map((v) => {
     const key = monthKey(v.year, v.month);
@@ -208,7 +242,7 @@ export function getCellStatuses(
 
     if (confirmedKeys.has(key)) return 'confirmed';
 
-    if (quarterKeys.has(key)) return 'needsReview';
+    if (reviewDue) return 'needsReview';
 
     if (!editable) return 'confirmed';
 
@@ -253,40 +287,25 @@ export function countCellsAwaitingForecast(statuses: ForecastCellStatus[]) {
   return statuses.filter((s) => s === 'needsReview' || s === 'suggested').length;
 }
 
-/** True when all current and future months in the rolling horizon have forecast amounts. */
+/** True when every month in the rolling horizon (current month onward) has a forecast amount. */
 export function isForecastHorizonComplete(
   values: MonthlyValue[],
   horizonMonths = FISCAL_FORECAST_HORIZON_MONTHS,
   now = new Date(),
 ) {
-  if (values.length < horizonMonths) return false;
+  const byKey = new Map(values.map((v) => [monthKey(v.year, v.month), v]));
 
-  return values.slice(0, horizonMonths).every((value) => {
-    if (isPastMonth(value.year, value.month, now)) return true;
-    return value.amount > 0;
-  });
+  for (let i = 0; i < horizonMonths; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    const value = byKey.get(monthKey(d.getFullYear(), d.getMonth() + 1));
+    if (!value || value.amount <= 0) return false;
+  }
+
+  return true;
 }
 
 function isEditableForecastCell(status: ForecastCellStatus) {
   return status === 'suggested' || status === 'needsReview';
-}
-
-/** Apply compound % growth from each month's prior value across editable cells. */
-export function applyPercentGrowthToEditableMonths(
-  values: MonthlyValue[],
-  statuses: ForecastCellStatus[],
-  growthPercent: number,
-): MonthlyValue[] {
-  const factor = 1 + growthPercent / 100;
-  const next = values.map((v) => ({ ...v }));
-
-  for (let i = 1; i < next.length; i++) {
-    if (isEditableForecastCell(statuses[i])) {
-      next[i] = { ...next[i], amount: Math.round(next[i - 1].amount * factor) };
-    }
-  }
-
-  return next;
 }
 
 /** Copy a source month's amount to all editable cells. */
@@ -325,10 +344,19 @@ export function isInProgressFiscalYear(fyChunk: FiscalYearChunk, now = new Date(
   return nowIndex >= startIndex && nowIndex <= endIndex;
 }
 
+/** A fiscal-year chunk that only covers part of the year (the tail of the rolling window). */
+export function isPartialFiscalYearChunk(fyChunk: FiscalYearChunk) {
+  return fyChunk.months.length < 12;
+}
+
 export function getAdjacentFiscalYearPercentChange(fiscalYearChunks: FiscalYearChunk[], chunkIndex: number) {
   if (chunkIndex <= 0) return null;
-  const currentTotal = sumMonthlyValues(fiscalYearChunks[chunkIndex].months);
-  const previousTotal = sumMonthlyValues(fiscalYearChunks[chunkIndex - 1].months);
+  const current = fiscalYearChunks[chunkIndex];
+  const previous = fiscalYearChunks[chunkIndex - 1];
+  // Comparing a partial year against a full year is meaningless.
+  if (isPartialFiscalYearChunk(current) || isPartialFiscalYearChunk(previous)) return null;
+  const currentTotal = sumMonthlyValues(current.months);
+  const previousTotal = sumMonthlyValues(previous.months);
   if (previousTotal <= 0) return null;
   return ((currentTotal - previousTotal) / previousTotal) * 100;
 }

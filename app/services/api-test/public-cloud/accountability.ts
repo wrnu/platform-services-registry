@@ -21,7 +21,7 @@ import {
   PUT as _updateQuarterlyReview,
 } from '@/app/api/public-cloud/products/[licencePlate]/quarterly-review/route';
 import {
-  buildFiscalForecastMonths,
+  buildRollingFiscalForecastMonths,
   FISCAL_FORECAST_HORIZON_MONTHS,
 } from '@/components/public-cloud/accountability/forecast-grid-utils';
 import { getServiceAccountAuthHeader } from '@/helpers/mock-resources';
@@ -177,8 +177,7 @@ export async function resolvePublicCloudAlert(
 }
 
 export function buildForecastMonthlyValues(amount = 5000, currency = 'USD', months = FISCAL_FORECAST_HORIZON_MONTHS) {
-  const fiscalYears = Math.ceil(months / 12);
-  return buildFiscalForecastMonths(fiscalYears, amount, currency);
+  return buildRollingFiscalForecastMonths(amount, currency, new Date(), months);
 }
 
 export function buildCspSnapshotPayload(licencePlate: string, provider: string, currency = 'USD') {

@@ -7,7 +7,7 @@ import { models } from '@/services/db';
 import {
   createForecastDraft,
   getActiveApprovedForecast,
-  seedForecastFromProductBudget,
+  seedForecastDraftValues,
 } from '@/services/db/public-cloud-accountability';
 import { cloudCostForecastBodySchema } from '@/validation-schemas/cloud-cost';
 
@@ -48,7 +48,7 @@ export const POST = createApiHandler({
   const horizonMonths = body?.horizonMonths ?? 24;
 
   if (!monthlyValues?.length) {
-    monthlyValues = seedForecastFromProductBudget(product.provider, product.budget, product.environmentsEnabled);
+    monthlyValues = await seedForecastDraftValues(product);
   }
 
   try {

@@ -97,11 +97,10 @@ export default publicCloudProductEdit(({ session }) => {
     {
       LeftIcon: IconChartBar,
       label: 'Project budget and spend forecast',
-      description: 'Environment budgets and fiscal year cloud spend forecast',
+      description: 'Fiscal year cloud spend forecast and spend accountability',
       initialOpen: true,
       Component: PublicCloudProjectBudgetSection,
       componentArgs: {
-        disabled: isDisabled,
         licencePlate: currentProduct.licencePlate,
         sessionUserId: session?.user?.id,
       },

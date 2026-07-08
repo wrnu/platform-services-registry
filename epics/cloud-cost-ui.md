@@ -20,12 +20,21 @@ Legacy `/accountability` URLs redirect to `/edit`.
 
 ### Admin navigation
 
+User-facing labels (nav menu and page titles):
+
+| Nav label                   | Page title                  | Route                                   |
+| --------------------------- | --------------------------- | --------------------------------------- |
+| Public Cloud Accountability | Public Cloud Accountability | `/public-cloud/accountability/all`      |
+| Public Cloud Forecast       | Public Cloud Forecast       | `/public-cloud/accountability/forecast` |
+| Public Cloud Notifications  | Notification log            | `/public-cloud/accountability/audit`    |
+| Public Cloud Cost Rules     | Public Cloud Cost Rules     | `/admin/public-cloud/cost-rules`        |
+
 | Route                                   | Purpose                                                                                 | Jira        | Status |
 | --------------------------------------- | --------------------------------------------------------------------------------------- | ----------- | ------ |
 | `/public-cloud/accountability/all`      | Governance dashboard: KPI cards + presets (Stories 6.2–6.4)                             | CR-23/CR-24 | Done   |
 | `/public-cloud/accountability/forecast` | "Public Cloud Forecast": read-only forecast, actuals and variance rollup (per currency) | —           | Done   |
-| `/public-cloud/accountability/audit`    | Notification audit log (Story 7.5)                                                      | —           | Done   |
-| `/admin/public-cloud/cost-rules`        | Rules configuration (RC.1–RC.3)                                                         | CR-39       | Done   |
+| `/public-cloud/accountability/audit`    | Notification log (Story 7.5)                                                            | —           | Done   |
+| `/admin/public-cloud/cost-rules`        | Public Cloud Cost Rules (RC.1–RC.3)                                                     | CR-39       | Done   |
 
 The former `compliance` (CR-24, Story 6.2), `director` (Story 6.3), and `executive` (Story 6.4)
 routes are consolidated into `/all` as the **Escalation list** / **Needs action** presets and the
@@ -64,12 +73,24 @@ Shared component: `app/components/public-cloud/costs/CurrentMonthSpendPanel.tsx`
 
 Component: `ProjectBudgetForecastPanel.tsx` (fiscal-year grid in `forecast-grid-utils.ts`)
 
--   24-month grid: fiscal-year rows (April–March), provider spend label (`Azure Spend` / `AWS Spend`)
--   Grand total with direction vs last saved forecast; adjacent FY % change
+-   Rolling 24-month grid: fiscal-year rows (April–March) from the start of the current FY through
+    current month + 23, so a partial third FY row appears whenever needed; provider spend label
+    (`Azure Spend` / `AWS Spend`)
+-   Past months grayed out and locked; all current/future months (including previously confirmed
+    ones) stay editable in a draft
+-   Quarterly forecast-review banner shows confirmation progress for the full rolling 24-month
+    window and provides a single primary action to confirm all current/future cells and mark the
+    forecast reviewed after changes are saved; PO sign-off remains a separate final step
+-   Grand total with direction vs last saved forecast; adjacent FY % change (full years only)
 -   Actuals row when CSP history exists (CR-30)
--   Actions: **Create draft**, **Edit draft**, **Submit**, **Approve**, **Reject** (billing reviewer, Story 1.5)
+-   Actions: **Create draft** (seeded from the active approved forecast when one exists, otherwise
+    from product budget), **Edit draft**, **Submit**, **Approve**, **Reject** (billing reviewer, Story 1.5)
 -   Significant-change modal on save (CR-15); apply-to-all-future-months (CR-16)
+-   Bulk fill: copy value across range, confirm all suggested
 -   Audit history tabs via `AccountabilityAuditHistory.tsx` (Stories 7.1–7.5)
+
+See [Video review feedback](#video-review-feedback-july-2026) for changes requested during the
+Project Registry document walkthrough.
 
 ### Quarterly review section
 
@@ -101,6 +122,34 @@ Component: `AccountabilityAuditHistory.tsx` — tabs for forecast versions, aler
 ### Spend history
 
 `HistoricalSpendPanel.tsx` on the costs tab (summary) and dedicated route `/costs/history` (CR-40).
+
+### Video review feedback (July 2026)
+
+Feedback from the Project Registry (PR) document video review. Scope for this pass is the **edit
+page** (`/public-cloud/products/[licencePlate]/edit`); the new project **creation page** is out of
+scope for the first release unless noted.
+
+| Area                            | Request                                                                                                                 | Rationale                                                                                                                                                                                                 | Status        | Implementation                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| New project creation            | Add forecast section to the creation page                                                                               | Teams should be able to enter forecasts at project setup                                                                                                                                                  | **Deferred**  | Acceptable to omit for v1 to keep creation simple. Add in a future release. Creation page (`/public-cloud/products/create`) still shows static budget estimates only.                                                                                                                                                                                                                                         |
+| Project budget & spend forecast | Remove static "Estimated average monthly spend" text and per-account inputs (Dev, Test, Prod, Tools) from the edit page | Superseded by the fiscal-year forecast grid; static estimates are no longer needed on this page                                                                                                           | **Done**      | Removed `Budget` component from `PublicCloudProjectBudgetSection` on the edit page. Budget inputs remain on create and request pages.                                                                                                                                                                                                                                                                         |
+| Project budget & spend forecast | Keep accountability explanation text and tooltips                                                                       | Reviewer praised clarity for teams                                                                                                                                                                        | **No change** | `AccountabilityGuidancePanel` and existing forecast copy unchanged.                                                                                                                                                                                                                                                                                                                                           |
+| Current month spend             | Keep projected month-end, >10% variance, and per-account breakdown (dev, test, prod)                                    | Reviewer confirmed this breakdown works well                                                                                                                                                              | **No change** | `CurrentMonthSpendPanel` unchanged.                                                                                                                                                                                                                                                                                                                                                                           |
+| Bulk fill                       | Remove **Apply % growth** entirely                                                                                      | One-click blanket growth risks over-inflating forecasts; teams should calculate and enter growth manually                                                                                                 | **Done**      | Removed popover UI from `ProjectBudgetForecastPanel` and `applyPercentGrowthToEditableMonths` from `forecast-grid-utils.ts`. Copy-across and confirm-all bulk actions remain.                                                                                                                                                                                                                                 |
+| Fiscal year forecast table      | Show a consistent rolling **24-month** forecast                                                                         | Grid showed only two fiscal-year rows (~21 fillable months mid-year); a third row (e.g. FY 28/29) is required                                                                                             | **Done**      | `buildRollingFiscalForecastMonths` spans current FY start (April) through current month + 23. Produces three fiscal-year chunks when needed, with the third labelled as a partial year at the end of the rolling window.                                                                                                                                                                                      |
+| Fiscal year forecast table      | Past months grayed out and uneditable                                                                                   | Historical months should reflect actuals, not user edits                                                                                                                                                  | **Done**      | `isPastMonth` + `preserveLockedPastMonthlyValues` lock past cells in the UI and on save.                                                                                                                                                                                                                                                                                                                      |
+| Fiscal year forecast table      | Future months must be editable                                                                                          | Reviewer could not edit future-month cells when projections needed updating                                                                                                                               | **Done**      | Two fixes: (1) confirmed future cells stay editable in draft mode (confirmation is visual only); (2) creating a new draft seeds from the active approved forecast via `seedForecastDraftValues`, with button label **Edit forecast** when an approved forecast exists.                                                                                                                                        |
+| Quarterly review completion     | Add an explicit way to persist forecast-review completion for the entire forecast                                       | `Confirm all suggested` was only a local visual state and did not clearly complete the quarterly review; each quarterly review should cover the full rolling 24-month forecast, not just the next quarter | **Done**      | Added a single quarterly forecast-review banner in `ProjectBudgetForecastPanel` with progress (`x / 24 months confirmed`). After edits are saved, its primary action confirms all current/future forecast cells and sets `forecastMonthsReviewed` and `forecastMonthsAdded` through the quarterly-review API. Review highlighting stops once this saved checklist item is true; PO sign-off remains separate. |
+
+**Key files changed**
+
+| File                                                                    | Change                                                                         |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `components/public-cloud/accountability/forecast-grid-utils.ts`         | Rolling 24-month horizon builder; removed growth helper; partial-FY detection  |
+| `components/public-cloud/accountability/ProjectBudgetForecastPanel.tsx` | Removed growth UI; fixed cell editability; partial-FY labels                   |
+| `components/public-cloud/sections/PublicCloudProjectBudgetSection.tsx`  | Removed static budget inputs; updated create/edit forecast action              |
+| `services/db/public-cloud-accountability.ts`                            | `seedForecastDraftValues`; rolling horizon for platform rollup and budget seed |
+| `app/api/public-cloud/products/[licencePlate]/forecasts/route.ts`       | Draft creation uses `seedForecastDraftValues`                                  |
 
 ---
 
@@ -159,7 +208,7 @@ Global session flags (`app/core/auth-options.ts`):
 | Submit / approve / reject | `POST .../forecasts/[id]/submit`, `approve`, `reject`        |
 | Export (project)          | `GET .../accountability/export` (CSV)                        |
 | Export (bundled)          | `POST /api/public-cloud/accountability/export`               |
-| Notification audit search | `POST /api/public-cloud/accountability/notifications/search` |
+| Notification log search   | `POST /api/public-cloud/accountability/notifications/search` |
 | Quarterly review          | `GET/PUT/POST .../quarterly-review`                          |
 | Alerts                    | `POST .../alerts/[id]/acknowledge`, `resolve`                |
 | Admin list                | `GET /api/public-cloud/accountability/search`                |

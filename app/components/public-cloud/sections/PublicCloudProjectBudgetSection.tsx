@@ -3,7 +3,6 @@
 import { Alert, Badge, Button, Modal, Table, Textarea } from '@mantine/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import Budget from '@/components/form/Budget';
 import LoadingBox from '@/components/generic/LoadingBox';
 import AccountabilityAuditHistory from '@/components/public-cloud/accountability/AccountabilityAuditHistory';
 import AccountabilityGuidancePanel from '@/components/public-cloud/accountability/AccountabilityGuidancePanel';
@@ -20,6 +19,7 @@ import {
   rejectPublicCloudForecast,
   signOffPublicCloudQuarterlyReview,
   submitPublicCloudForecast,
+  updatePublicCloudQuarterlyReview,
 } from '@/services/backend/public-cloud/accountability';
 import { usePublicProductState } from '@/states/global';
 import { formatCurrency } from '@/utils/js';
@@ -32,11 +32,9 @@ function StatusBadge({ status }: { status?: string }) {
 }
 
 export default function PublicCloudProjectBudgetSection({
-  disabled,
   licencePlate,
   sessionUserId,
 }: {
-  disabled?: boolean;
   licencePlate: string;
   sessionUserId?: string;
 }) {
@@ -84,6 +82,15 @@ export default function PublicCloudProjectBudgetSection({
     onSuccess: refresh,
   });
 
+  const markForecastReviewed = useMutation({
+    mutationFn: () =>
+      updatePublicCloudQuarterlyReview(licencePlate, {
+        forecastMonthsAdded: true,
+        forecastMonthsReviewed: true,
+      }),
+    onSuccess: refresh,
+  });
+
   const [alertModal, setAlertModal] = useState<{
     alertId: string;
     level: string;
@@ -114,7 +121,7 @@ export default function PublicCloudProjectBudgetSection({
             <div className="flex flex-wrap gap-2">
               {permissions?.editForecast && !draftForecast && !pendingForecast && (
                 <Button type="button" loading={createForecast.isPending} onClick={() => createForecast.mutate()}>
-                  Create forecast from product budget
+                  {data.activeForecast ? 'Edit forecast' : 'Create forecast from product budget'}
                 </Button>
               )}
               {draftForecast && permissions?.editForecast && (
@@ -163,8 +170,6 @@ export default function PublicCloudProjectBudgetSection({
 
   return (
     <div className="space-y-8">
-      <Budget disabled={disabled} mode="edit" />
-
       {canViewAccountability && (
         <>
           {isLoading && (
@@ -242,6 +247,8 @@ export default function PublicCloudProjectBudgetSection({
                         quarterlyReview={data.quarterlyReview}
                         editable={Boolean(draftForecast && permissions?.editForecast)}
                         onSaved={refresh}
+                        onForecastReviewed={() => markForecastReviewed.mutate()}
+                        forecastReviewSaving={markForecastReviewed.isPending}
                       />
                       {forecastActions}
                     </>
