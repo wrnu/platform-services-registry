@@ -2,13 +2,15 @@ import ExcelJS from 'exceljs';
 import {
   getFiscalYearChunks,
   getProviderSpendLabel,
+  mergeMonthlyValuesOntoFiscalHorizon,
+  monthKey,
   shortMonthLabel,
   sumMonthlyValues,
   yearRangeLabel,
   type MonthlyValue,
 } from '@/components/public-cloud/accountability/forecast-grid-utils';
 import { Provider } from '@/prisma/client';
-import type { PlatformForecastSummary } from '@/services/db/public-cloud-accountability';
+import type { PlatformForecastProduct, PlatformForecastSummary } from '@/services/db/public-cloud-accountability';
 
 const COLORS = {
   titleBg: '003366',
@@ -26,6 +28,19 @@ const COLORS = {
   overspend: 'DC2626',
   underspend: '059669',
   muted: '9CA3AF',
+};
+
+type ForecastExportSheet = {
+  sheetName: string;
+  title: string;
+  subtitle: string;
+  currency: string;
+  providers: string[];
+  productCount: number;
+  forecastCount: number;
+  monthlyTotals: MonthlyValue[];
+  monthlyActuals: (number | null)[];
+  products: PlatformForecastProduct[];
 };
 
 function providerLabel(providers: string[]) {
@@ -50,6 +65,87 @@ function varianceFormat(currency: string) {
 
 function sanitizeSheetName(name: string) {
   return name.replace(/[\\/*?[\]:]/g, '-').slice(0, 31) || 'Sheet';
+}
+
+function buildFilteredGroupTotals(
+  products: PlatformForecastProduct[],
+  currency: string,
+): { monthlyTotals: MonthlyValue[]; monthlyActuals: (number | null)[] } {
+  const totalsByMonth = new Map<string, MonthlyValue>();
+  const actualsByMonth = new Map<string, number>();
+
+  for (const product of products) {
+    if (product.hasForecast) {
+      for (const value of product.monthlyTotals) {
+        const key = monthKey(value.year, value.month);
+        const existing = totalsByMonth.get(key);
+        if (existing) {
+          existing.amount += value.amount;
+        } else {
+          totalsByMonth.set(key, { ...value, currency });
+        }
+      }
+    }
+
+    product.monthlyTotals.forEach((slot, index) => {
+      const actual = product.monthlyActuals[index];
+      if (actual == null) return;
+      const key = monthKey(slot.year, slot.month);
+      actualsByMonth.set(key, (actualsByMonth.get(key) ?? 0) + actual);
+    });
+  }
+
+  const monthlyTotals = mergeMonthlyValuesOntoFiscalHorizon([...totalsByMonth.values()], currency);
+  const monthlyActuals = monthlyTotals.map((slot) => actualsByMonth.get(monthKey(slot.year, slot.month)) ?? null);
+  return { monthlyTotals, monthlyActuals };
+}
+
+function buildExportSheets(summary: PlatformForecastSummary): ForecastExportSheet[] {
+  const sheets: ForecastExportSheet[] = [];
+
+  for (const group of summary.groups) {
+    const includesAws = group.providers.some((provider) => provider === Provider.AWS || provider === Provider.AWS_LZA);
+    const fxNote = includesAws ? ' · AWS USD actuals converted to CAD with the monthly FX rate' : '';
+
+    sheets.push({
+      sheetName: sanitizeSheetName(`All - ${group.currency}`),
+      title: `Cloud Spend — All providers (${group.currency})`,
+      subtitle: `${group.forecastCount} of ${group.productCount} products with an approved forecast · Currency: ${group.currency}${fxNote}`,
+      currency: group.currency,
+      providers: group.providers,
+      productCount: group.productCount,
+      forecastCount: group.forecastCount,
+      monthlyTotals: group.monthlyTotals as MonthlyValue[],
+      monthlyActuals: group.monthlyActuals,
+      products: group.products,
+    });
+
+    const providers = [...group.providers].sort((a, b) => providerLabel([a]).localeCompare(providerLabel([b])));
+    for (const provider of providers) {
+      const products = group.products.filter((product) => product.provider === provider);
+      const totals = buildFilteredGroupTotals(products, group.currency);
+      const forecastCount = products.filter((product) => product.hasForecast).length;
+      const providerFxNote =
+        provider === Provider.AWS || provider === Provider.AWS_LZA
+          ? ' · AWS USD actuals converted to CAD with the monthly FX rate'
+          : '';
+
+      sheets.push({
+        sheetName: sanitizeSheetName(providerLabel([provider])),
+        title: `${getProviderSpendLabel(provider)} (${group.currency})`,
+        subtitle: `${forecastCount} of ${products.length} products with an approved forecast · Currency: ${group.currency}${providerFxNote}`,
+        currency: group.currency,
+        providers: [provider],
+        productCount: products.length,
+        forecastCount,
+        monthlyTotals: totals.monthlyTotals,
+        monthlyActuals: totals.monthlyActuals,
+        products,
+      });
+    }
+  }
+
+  return sheets;
 }
 
 function styleTitleRow(row: ExcelJS.Row, colCount: number) {
@@ -149,7 +245,7 @@ function setColumnWidths(sheet: ExcelJS.Worksheet, firstColWidth: number, valueC
   }
 }
 
-function addSummarySheet(workbook: ExcelJS.Workbook, summary: PlatformForecastSummary) {
+function addSummarySheet(workbook: ExcelJS.Workbook, summary: PlatformForecastSummary, sheets: ForecastExportSheet[]) {
   const sheet = workbook.addWorksheet('Summary', {
     views: [{ state: 'frozen', ySplit: 1 }],
   });
@@ -165,6 +261,12 @@ function addSummarySheet(workbook: ExcelJS.Workbook, summary: PlatformForecastSu
   generated.getCell(1).font = { bold: true, size: 10, color: { argb: `FF${COLORS.subtitleFg}` } };
   generated.getCell(2).numFmt = 'yyyy-mm-dd hh:mm';
   generated.getCell(2).font = { size: 10 };
+
+  const note = sheet.addRow([
+    'All amounts are in CAD. AWS invoice actuals arriving in USD are converted with the monthly USD/CAD rate.',
+  ]);
+  note.font = { size: 10, italic: true, color: { argb: `FF${COLORS.subtitleFg}` } };
+  sheet.mergeCells(note.number, 1, note.number, 7);
 
   sheet.addRow([]);
   const kpiHeader = sheet.addRow(['Coverage']);
@@ -186,7 +288,7 @@ function addSummarySheet(workbook: ExcelJS.Workbook, summary: PlatformForecastSu
 
   sheet.addRow([]);
   const tableHeader = sheet.addRow([
-    'Currency',
+    'Sheet',
     'Providers',
     'Product count',
     'Forecast count',
@@ -196,21 +298,21 @@ function addSummarySheet(workbook: ExcelJS.Workbook, summary: PlatformForecastSu
   ]);
   styleHeaderRow(tableHeader, 7);
 
-  summary.groups.forEach((group, index) => {
-    const actualToDate = group.monthlyActuals.reduce<number>((sum, v) => sum + (v ?? 0), 0);
-    const forecastForActualMonths = group.monthlyTotals.reduce(
-      (sum, month, i) => (group.monthlyActuals[i] != null ? sum + month.amount : sum),
+  sheets.forEach((exportSheet, index) => {
+    const actualToDate = exportSheet.monthlyActuals.reduce<number>((sum, v) => sum + (v ?? 0), 0);
+    const forecastForActualMonths = exportSheet.monthlyTotals.reduce(
+      (sum, month, i) => (exportSheet.monthlyActuals[i] != null ? sum + month.amount : sum),
       0,
     );
-    const hasActuals = group.monthlyActuals.some((v) => v != null);
+    const hasActuals = exportSheet.monthlyActuals.some((v) => v != null);
     const variance = hasActuals ? actualToDate - forecastForActualMonths : null;
 
     const row = sheet.addRow([
-      group.currency,
-      providerLabel(group.providers),
-      group.productCount,
-      group.forecastCount,
-      sumMonthlyValues(group.monthlyTotals as MonthlyValue[]),
+      exportSheet.sheetName,
+      providerLabel(exportSheet.providers),
+      exportSheet.productCount,
+      exportSheet.forecastCount,
+      sumMonthlyValues(exportSheet.monthlyTotals),
       hasActuals ? actualToDate : '',
       variance ?? '',
     ]);
@@ -226,10 +328,10 @@ function addSummarySheet(workbook: ExcelJS.Workbook, summary: PlatformForecastSu
       cell.alignment = { vertical: 'middle', horizontal: col <= 2 ? 'left' : 'right' };
     }
 
-    row.getCell(5).numFmt = currencyFormat(group.currency);
+    row.getCell(5).numFmt = currencyFormat(exportSheet.currency);
     if (hasActuals) {
-      row.getCell(6).numFmt = currencyFormat(group.currency);
-      row.getCell(7).numFmt = varianceFormat(group.currency);
+      row.getCell(6).numFmt = currencyFormat(exportSheet.currency);
+      row.getCell(7).numFmt = varianceFormat(exportSheet.currency);
       if (typeof variance === 'number') {
         row.getCell(7).font = {
           size: 10,
@@ -246,8 +348,8 @@ function addSummarySheet(workbook: ExcelJS.Workbook, summary: PlatformForecastSu
     }
   });
 
-  sheet.getColumn(1).width = 14;
-  sheet.getColumn(2).width = 18;
+  sheet.getColumn(1).width = 18;
+  sheet.getColumn(2).width = 22;
   sheet.getColumn(3).width = 14;
   sheet.getColumn(4).width = 14;
   sheet.getColumn(5).width = 16;
@@ -255,28 +357,27 @@ function addSummarySheet(workbook: ExcelJS.Workbook, summary: PlatformForecastSu
   sheet.getColumn(7).width = 16;
 }
 
-function addCurrencySheet(workbook: ExcelJS.Workbook, group: PlatformForecastSummary['groups'][number]) {
+function addDetailSheet(workbook: ExcelJS.Workbook, exportSheet: ForecastExportSheet) {
   const spendLabel =
-    group.providers.length === 1 ? getProviderSpendLabel(group.providers[0]) : `Cloud Spend (${group.currency})`;
-  const sheetName = sanitizeSheetName(`${group.currency} - ${providerLabel(group.providers)}`);
-  const sheet = workbook.addWorksheet(sheetName, {
+    exportSheet.providers.length === 1
+      ? getProviderSpendLabel(exportSheet.providers[0])
+      : `Cloud Spend (${exportSheet.currency})`;
+  const sheet = workbook.addWorksheet(exportSheet.sheetName, {
     views: [{ state: 'frozen', xSplit: 1, ySplit: 1 }],
   });
 
-  const fiscalYearChunks = getFiscalYearChunks(group.monthlyTotals as MonthlyValue[]);
+  const fiscalYearChunks = getFiscalYearChunks(exportSheet.monthlyTotals);
   const maxMonths = Math.max(...fiscalYearChunks.map((chunk) => chunk.months.length), 1);
   const colCount = maxMonths + 2;
-  const lineItemProducts = group.products.filter(
+  const lineItemProducts = exportSheet.products.filter(
     (product) => product.hasForecast || product.monthlyActuals.some((v) => v != null),
   );
 
-  const title = sheet.addRow([`${spendLabel} — ${providerLabel(group.providers)}`]);
+  const title = sheet.addRow([exportSheet.title]);
   styleTitleRow(title, colCount);
   sheet.mergeCells(1, 1, 1, colCount);
 
-  const subtitle = sheet.addRow([
-    `${group.forecastCount} of ${group.productCount} products with an approved forecast · Currency: ${group.currency}`,
-  ]);
+  const subtitle = sheet.addRow([exportSheet.subtitle]);
   subtitle.font = { size: 10, italic: true, color: { argb: `FF${COLORS.subtitleFg}` } };
   sheet.mergeCells(subtitle.number, 1, subtitle.number, colCount);
 
@@ -284,7 +385,7 @@ function addCurrencySheet(workbook: ExcelJS.Workbook, group: PlatformForecastSum
 
   for (const fyChunk of fiscalYearChunks) {
     const yearTotal = sumMonthlyValues(fyChunk.months);
-    const chunkActuals = fyChunk.months.map((_, i) => group.monthlyActuals[fyChunk.startIndex + i] ?? null);
+    const chunkActuals = fyChunk.months.map((_, i) => exportSheet.monthlyActuals[fyChunk.startIndex + i] ?? null);
     const chunkHasActuals = chunkActuals.some((v) => v != null);
     const chunkActualTotal = chunkActuals.reduce<number>((sum, v) => sum + (v ?? 0), 0);
     const chunkVarianceTotal = fyChunk.months.reduce(
@@ -316,11 +417,11 @@ function addCurrencySheet(workbook: ExcelJS.Workbook, group: PlatformForecastSum
         ? forecasts.reduce<number>((sum, v) => sum + (typeof v === 'number' ? v : 0), 0)
         : '';
       const row = sheet.addRow([`${product.name} (${product.licencePlate})`, ...forecasts, productYearTotal]);
-      styleProductRow(row, fyColCount, group.currency, index % 2 === 1);
+      styleProductRow(row, fyColCount, exportSheet.currency, index % 2 === 1);
     });
 
     const forecastTotal = sheet.addRow(['Forecast total', ...fyChunk.months.map((month) => month.amount), yearTotal]);
-    styleTotalRow(forecastTotal, fyColCount, group.currency);
+    styleTotalRow(forecastTotal, fyColCount, exportSheet.currency);
 
     const actualSection = sheet.addRow(['Actual by product']);
     styleSectionRow(actualSection, fyColCount);
@@ -333,7 +434,7 @@ function addCurrencySheet(workbook: ExcelJS.Workbook, group: PlatformForecastSum
         ? productActuals.reduce<number>((sum, v) => sum + (typeof v === 'number' ? v : 0), 0)
         : '';
       const row = sheet.addRow([`${product.name} (${product.licencePlate})`, ...productActuals, productActualTotal]);
-      styleProductRow(row, fyColCount, group.currency, index % 2 === 1);
+      styleProductRow(row, fyColCount, exportSheet.currency, index % 2 === 1);
     });
 
     const actualTotal = sheet.addRow([
@@ -341,7 +442,7 @@ function addCurrencySheet(workbook: ExcelJS.Workbook, group: PlatformForecastSum
       ...chunkActuals.map((actual) => actual ?? ''),
       chunkHasActuals ? chunkActualTotal : '',
     ]);
-    styleTotalRow(actualTotal, fyColCount, group.currency);
+    styleTotalRow(actualTotal, fyColCount, exportSheet.currency);
 
     const varianceSection = sheet.addRow(['Variance by product']);
     styleSectionRow(varianceSection, fyColCount);
@@ -358,7 +459,7 @@ function addCurrencySheet(workbook: ExcelJS.Workbook, group: PlatformForecastSum
         ? variances.reduce<number>((sum, v) => sum + (typeof v === 'number' ? v : 0), 0)
         : '';
       const row = sheet.addRow([`${product.name} (${product.licencePlate})`, ...variances, productVarianceTotal]);
-      styleProductRow(row, fyColCount, group.currency, index % 2 === 1, true);
+      styleProductRow(row, fyColCount, exportSheet.currency, index % 2 === 1, true);
     });
 
     const varianceTotal = sheet.addRow([
@@ -366,24 +467,24 @@ function addCurrencySheet(workbook: ExcelJS.Workbook, group: PlatformForecastSum
       ...fyChunk.months.map((month, i) => (chunkActuals[i] != null ? chunkActuals[i]! - month.amount : '')),
       chunkHasActuals ? chunkVarianceTotal : '',
     ]);
-    styleTotalRow(varianceTotal, fyColCount, group.currency, true);
+    styleTotalRow(varianceTotal, fyColCount, exportSheet.currency, true);
 
     sheet.addRow([]);
   }
 
-  const grandTotal = sumMonthlyValues(group.monthlyTotals as MonthlyValue[]);
-  const actualToDate = group.monthlyActuals.reduce<number>((sum, v) => sum + (v ?? 0), 0);
-  const forecastForActualMonths = group.monthlyTotals.reduce(
-    (sum, month, i) => (group.monthlyActuals[i] != null ? sum + month.amount : sum),
+  const grandTotal = sumMonthlyValues(exportSheet.monthlyTotals);
+  const actualToDate = exportSheet.monthlyActuals.reduce<number>((sum, v) => sum + (v ?? 0), 0);
+  const forecastForActualMonths = exportSheet.monthlyTotals.reduce(
+    (sum, month, i) => (exportSheet.monthlyActuals[i] != null ? sum + month.amount : sum),
     0,
   );
-  const hasActuals = group.monthlyActuals.some((v) => v != null);
+  const hasActuals = exportSheet.monthlyActuals.some((v) => v != null);
 
   const footerHeader = sheet.addRow(['Horizon totals']);
   styleSectionRow(footerHeader, 2);
 
   const footerRows = [
-    [`${group.monthlyTotals.length}-month forecast total`, grandTotal, false],
+    [`${exportSheet.monthlyTotals.length}-month forecast total`, grandTotal, false],
     ['Actuals to date', hasActuals ? actualToDate : '', false],
     ['Variance vs forecast for closed months', hasActuals ? actualToDate - forecastForActualMonths : '', true],
   ] as const;
@@ -394,7 +495,7 @@ function addCurrencySheet(workbook: ExcelJS.Workbook, group: PlatformForecastSum
     row.getCell(2).font = { bold: true, size: 11 };
     row.getCell(2).alignment = { horizontal: 'right' };
     if (typeof value === 'number') {
-      row.getCell(2).numFmt = isVariance ? varianceFormat(group.currency) : currencyFormat(group.currency);
+      row.getCell(2).numFmt = isVariance ? varianceFormat(exportSheet.currency) : currencyFormat(exportSheet.currency);
       if (isVariance) {
         row.getCell(2).font = {
           bold: true,
@@ -417,9 +518,10 @@ export async function buildPlatformForecastWorkbookBuffer(summary: PlatformForec
   workbook.created = new Date();
   workbook.modified = new Date();
 
-  addSummarySheet(workbook, summary);
-  for (const group of summary.groups) {
-    addCurrencySheet(workbook, group);
+  const sheets = buildExportSheets(summary);
+  addSummarySheet(workbook, summary, sheets);
+  for (const exportSheet of sheets) {
+    addDetailSheet(workbook, exportSheet);
   }
 
   const arrayBuffer = await workbook.xlsx.writeBuffer();
